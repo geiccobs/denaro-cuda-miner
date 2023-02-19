@@ -17,7 +17,7 @@ Let's look at them:
 
 ### Platforms
 This miner is tested on both Linux and Windows (WSL 2).  
-Obviously is working only on NVIDIA GPUs.
+Obviously it is working only on NVIDIA GPUs.
 
 ## Installation
 
