@@ -1,7 +1,7 @@
 package main
 
 /*
-void start(const int device_id, const int threads, const int blocks, unsigned char *prefix, char *share_chunk, int share_difficulty, const char *out);
+void start(const int device_id, const int threads, const int blocks, unsigned char *prefix, char *share_chunk, int share_difficulty, char *device_name, unsigned char **out);
 
 #cgo LDFLAGS: -L. -L./ -lkernel
 */
@@ -17,8 +17,6 @@ import (
 	"fmt"
 	"github.com/btcsuite/btcutil/base58"
 	"log"
-	"os/exec"
-	"strings"
 	"time"
 	"unsafe"
 )
@@ -41,6 +39,9 @@ var (
 
 	devFee            int // 1 every X shares are sent to the dev
 	devFeeMustProcess = false
+
+	res        MiningInfoResult
+	deviceName = "Waiting..."
 )
 
 func main() {
@@ -79,28 +80,24 @@ func main() {
 		panic(err)
 	}
 
+	getMiningInfo()
+
 	for {
 		if !silent {
 			printUI()
 		}
 
-		var reqP MiningInfo
-		req := GET(nodeUrl+"get_mining_info", map[string]interface{}{})
-		_ = json.Unmarshal(req.Body(), &reqP)
-
-		miner(miningAddressT.Address, reqP.Result)
+		miner(miningAddressT.Address)
 	}
 }
 
 func printUI() {
-	deviceName, _ := exec.Command("nvidia-smi", "--query-gpu=name", "--format=csv", "--id="+fmt.Sprint(deviceId)).Output()
-
 	var hashrates Hashrates
 	req := GET(poolUrl+"hashrates", map[string]interface{}{})
 	_ = json.Unmarshal(req.Body(), &hashrates)
 
 	fmt.Print("\033[H\033[2J")
-	fmt.Println("Device: ", strings.Replace(strings.Replace(string(deviceName), "name\n", "", 1), "\n", "", -1))
+	fmt.Println("Device: ", deviceName)
 	fmt.Println("Address: ", address)
 	fmt.Println("Hashrate: ", hashrates.Result[address]/1_000_000, "MH/s")
 	fmt.Println()
@@ -113,7 +110,7 @@ func printUI() {
 	fmt.Println("Last update: ", time.Now().Format("15:04:05"))
 }
 
-func miner(miningAddress string, res MiningInfoResult) {
+func miner(miningAddress string) {
 	var difficulty = res.Difficulty
 	var idifficulty = int(difficulty)
 
@@ -170,9 +167,14 @@ func miner(miningAddress string, res MiningInfoResult) {
 	binary.LittleEndian.PutUint16(dataDifficulty, uint16(difficulty*10))
 	prefix = append(prefix, dataDifficulty...)
 
-	var result = make([]byte, 108)
-
 	var shareChunkGpu = C.CString(shareChunk)
+
+	sharesUChar := make([]*C.uchar, 32)
+	for i := range sharesUChar {
+		sharesUChar[i] = (*C.uchar)(C.malloc(108))
+	}
+
+	var deviceNameGpu = make([]byte, 256)
 
 	C.start(
 		C.int(deviceId),
@@ -181,46 +183,74 @@ func miner(miningAddress string, res MiningInfoResult) {
 		(*C.uchar)(unsafe.Pointer(&prefix[0])),
 		shareChunkGpu,
 		C.int(shareDifficulty),
-		(*C.char)(unsafe.Pointer(&result[0])),
+		(*C.char)(unsafe.Pointer(&deviceNameGpu[0])),
+		&sharesUChar[0],
 	)
+	go postShares(sharesUChar)
 
-	// check if first byte of result is 2, which currently is the version indicator
-	if result[0] == 2 {
-		var shareT Share
+	deviceName = C.GoString((*C.char)(unsafe.Pointer(&deviceNameGpu[0])))
 
-		shareReq := POST(
-			poolUrl+"share",
-			map[string]interface{}{
-				"block_content":    hex.EncodeToString(result),
-				"txs":              txs,
-				"id":               lastBlock.Id + 1,
-				"share_difficulty": difficulty,
-			},
-		)
-		_ = json.Unmarshal(shareReq.Body(), &shareT)
+	C.free(unsafe.Pointer(shareChunkGpu))
+}
 
-		// process dev fee
-		devFeeText := ""
-		if devFee > 0 && shares%devFee == 0 {
-			devFeeMustProcess = true
-		} else if devFeeMustProcess {
-			devFeeMustProcess = false
-			devFeeText = "(dev fee)"
-		}
+func getMiningInfo() {
+	var reqP MiningInfo
 
-		if shareT.Ok {
-			shares++
+	for {
+		req := GET(nodeUrl+"get_mining_info", map[string]interface{}{})
+		_ = json.Unmarshal(req.Body(), &reqP)
 
-			if !silent {
-				log.Printf("Share accepted (device: %d) %s\n", deviceId, devFeeText)
-				log.Println(hex.EncodeToString(result))
-			}
-		} else if !silent {
-			log.Println(string(shareReq.Body()))
-			log.Println(hex.EncodeToString(result))
+		if reqP.Ok && reqP.Result.LastBlock.Id > res.LastBlock.Id {
+			res = reqP.Result
+			break
 		}
 	}
-	C.free(unsafe.Pointer(shareChunkGpu))
+}
+
+func postShares(sharesUChar []*C.uchar) {
+	var shareT Share
+
+	for _, share := range sharesUChar {
+		// check if first byte of result is 2, which currently is the version indicator
+		if shareBytes := C.GoBytes(unsafe.Pointer(share), 108); shareBytes[0] == 2 {
+			shareReq := POST(
+				poolUrl+"share",
+				map[string]interface{}{
+					"block_content":    hex.EncodeToString(shareBytes),
+					"txs":              res.PendingTransactionsHashes,
+					"id":               res.LastBlock.Id + 1,
+					"share_difficulty": res.Difficulty,
+				},
+			)
+			_ = json.Unmarshal(shareReq.Body(), &shareT)
+
+			// process dev fee
+			devFeeText := ""
+			if devFee > 0 && shares%devFee == 0 {
+				devFeeMustProcess = true
+			} else if devFeeMustProcess {
+				devFeeMustProcess = false
+				devFeeText = "(dev fee)"
+			}
+
+			if shareT.Ok {
+				shares++
+
+				if !silent {
+					log.Printf("Share accepted (device: %d) %s\n", deviceId, devFeeText)
+					log.Println(hex.EncodeToString(shareBytes))
+				}
+			} else {
+				if !silent {
+					log.Println(string(shareReq.Body()))
+					log.Println(hex.EncodeToString(shareBytes))
+				}
+				getMiningInfo()
+			}
+		} else {
+			break
+		}
+	}
 }
 
 func getTransactionsMerkleTree(transactions []string) string {
