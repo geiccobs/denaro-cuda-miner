@@ -54,7 +54,7 @@ func main() {
 	flag.IntVar(&threads, "threads", 512, "gpu threads")
 	flag.IntVar(&blocks, "blocks", 50, "gpu blocks")
 
-	flag.IntVar(&shareDifficulty, "share", 7, "share difficulty")
+	flag.IntVar(&shareDifficulty, "share", 8, "share difficulty")
 	flag.IntVar(&devFee, "fee", 5, "dev fee (1 every X shares are sent to the dev)")
 
 	flag.Parse()
