@@ -1,7 +1,7 @@
 package main
 
 /*
-void start(const int device_id, const int threads, const int blocks, unsigned char *prefix, char *share_chunk, int share_difficulty, char *charset, const char *out);
+void start(const int device_id, const int threads, const int blocks, unsigned char *prefix, char *share_chunk, int share_difficulty, const char *out);
 
 #cgo LDFLAGS: -L. -L./ -lkernel
 */
@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"github.com/btcsuite/btcutil/base58"
 	"log"
-	"math"
 	"os/exec"
 	"strings"
 	"time"
@@ -124,8 +123,6 @@ func miner(miningAddress string, res MiningInfoResult) {
 		}
 	}()
 
-	_, decimal := math.Modf(difficulty)
-
 	lastBlock := res.LastBlock
 	if lastBlock.Hash == "" {
 		var num uint32 = 30_06_2005
@@ -144,12 +141,6 @@ func miner(miningAddress string, res MiningInfoResult) {
 		shareDifficulty = idifficulty
 	}
 	shareChunk = chunk[:shareDifficulty]
-
-	charset := "0123456789abcdef"
-	if decimal > 0 {
-		count := math.Ceil(16 * (1 - decimal))
-		charset = charset[:int(count)]
-	}
 
 	var addressBytes []byte
 	if devFeeMustProcess {
@@ -182,7 +173,6 @@ func miner(miningAddress string, res MiningInfoResult) {
 	var result = make([]byte, 108)
 
 	var shareChunkGpu = C.CString(shareChunk)
-	var charsetGpu = C.CString(charset)
 
 	C.start(
 		C.int(deviceId),
@@ -191,7 +181,6 @@ func miner(miningAddress string, res MiningInfoResult) {
 		(*C.uchar)(unsafe.Pointer(&prefix[0])),
 		shareChunkGpu,
 		C.int(shareDifficulty),
-		charsetGpu,
 		(*C.char)(unsafe.Pointer(&result[0])),
 	)
 
@@ -232,7 +221,6 @@ func miner(miningAddress string, res MiningInfoResult) {
 		}
 	}
 	C.free(unsafe.Pointer(shareChunkGpu))
-	C.free(unsafe.Pointer(charsetGpu))
 }
 
 func getTransactionsMerkleTree(transactions []string) string {
