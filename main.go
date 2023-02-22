@@ -83,31 +83,30 @@ func main() {
 	getMiningInfo()
 
 	for {
-		if !silent {
-			printUI()
-		}
-
+		go printUI()
 		miner(miningAddressT.Address)
 	}
 }
 
 func printUI() {
-	var hashrates Hashrates
-	req := GET(poolUrl+"hashrates", map[string]interface{}{})
-	_ = json.Unmarshal(req.Body(), &hashrates)
+	if !silent {
+		var hashrates Hashrates
+		req := GET(poolUrl+"hashrates", map[string]interface{}{})
+		_ = json.Unmarshal(req.Body(), &hashrates)
 
-	fmt.Print("\033[H\033[2J")
-	fmt.Println("Device: ", deviceName)
-	fmt.Println("Address: ", address)
-	fmt.Println("Hashrate: ", hashrates.Result[address]/1_000_000, "MH/s")
-	fmt.Println()
-	fmt.Println("Pool: ", poolUrl)
-	fmt.Println("Node: ", nodeUrl)
-	fmt.Println()
-	fmt.Println("Shares: ", shares)
-	fmt.Println("Dev fee: 1 share every", devFee, "shares")
-	fmt.Println()
-	fmt.Println("Last update: ", time.Now().Format("15:04:05"))
+		fmt.Print("\033[H\033[2J")
+		fmt.Println("Device: ", deviceName)
+		fmt.Println("Address: ", address)
+		fmt.Println("Hashrate: ", hashrates.Result[address]/1_000_000, "MH/s")
+		fmt.Println()
+		fmt.Println("Pool: ", poolUrl)
+		fmt.Println("Node: ", nodeUrl)
+		fmt.Println()
+		fmt.Println("Shares: ", shares)
+		fmt.Println("Dev fee: 1 share every", devFee, "shares")
+		fmt.Println()
+		fmt.Println("Last update: ", time.Now().Format("15:04:05"))
+	}
 }
 
 func miner(miningAddress string) {
