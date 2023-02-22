@@ -10,9 +10,9 @@ import (
 )
 
 var client = &fasthttp.Client{
-	MaxConnDuration: time.Second * 30,
-	ReadTimeout:     time.Second * 30,
-	WriteTimeout:    time.Second * 30,
+	MaxConnDuration: time.Second * 300,
+	ReadTimeout:     time.Second * 300,
+	WriteTimeout:    time.Second * 300,
 	Dial: func(addr string) (net.Conn, error) {
 		return fasthttp.DialTimeout(addr, time.Second*5)
 	},
