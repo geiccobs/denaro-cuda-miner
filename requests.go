@@ -14,7 +14,7 @@ var client = &fasthttp.Client{
 	ReadTimeout:     time.Second * 300,
 	WriteTimeout:    time.Second * 300,
 	Dial: func(addr string) (net.Conn, error) {
-		return fasthttp.DialTimeout(addr, time.Second*5)
+		return fasthttp.DialTimeout(addr, time.Second*300)
 	},
 }
 
