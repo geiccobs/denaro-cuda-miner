@@ -199,9 +199,11 @@ func getMiningInfo() {
 		req := GET(nodeUrl+"get_mining_info", map[string]interface{}{})
 		_ = json.Unmarshal(req.Body(), &reqP)
 
-		if reqP.Ok && reqP.Result.LastBlock.Id > res.LastBlock.Id {
+		if reqP.Ok {
 			res = reqP.Result
 			break
+		} else {
+			time.Sleep(1 * time.Second)
 		}
 	}
 }
