@@ -2,7 +2,6 @@ package main
 
 /*
 void start(const int device_id, const int threads, const int blocks, unsigned char *prefix, char *share_chunk, int share_difficulty, char *device_name, unsigned char **out);
-
 #cgo LDFLAGS: -L. -L./ -lkernel
 */
 // #include <stdlib.h>
