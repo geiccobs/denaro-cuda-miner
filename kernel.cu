@@ -62,7 +62,7 @@ __global__ void miner(unsigned char *hash_prefix, char *share_chunk, size_t shar
 }
 
 extern "C" {
-    void start(const int device_id, const int threads, const int blocks, unsigned char *prefix, char *share_chunk, int share_difficulty, char *device_name, unsigned char **out) {
+    void start(const int device_id, const int threads, const int blocks, unsigned char *prefix, char *share_chunk, int share_difficulty, char *device_name, float *hashrate, unsigned char **out) {
         auto res = cudaSetDevice(device_id);
         if (res != cudaSuccess) {
             printf("Error setting device: %s\n", cudaGetErrorString(res));
@@ -75,6 +75,7 @@ extern "C" {
 
         checkCudaErrors(cudaMemcpyToSymbol(dev_k, host_k, sizeof(host_k), 0, cudaMemcpyHostToDevice));
 
+        // allocate memory on the device
         int *stop;
         cudaMallocManaged(&stop, sizeof(int));
         cudaMemcpy(stop, 0, sizeof(int), cudaMemcpyHostToDevice);
@@ -105,9 +106,54 @@ extern "C" {
             cudaMemcpy(out_t[i], out[i], sizeof(unsigned char) * TOTAL_SIZE, cudaMemcpyHostToDevice);
         }
 
-        miner<<<threads,blocks>>> (prefix_g, share_chunk_g, (size_t)share_difficulty, out_g, stop, share_id, blocks * threads);
+        cudaError_t err;
+        cudaEvent_t start, end;
+        float elapsed_ms = 0.0f;
 
+        err = cudaEventCreate(&start);
+        if (err != cudaSuccess) {
+            printf("Failed to create start event: %s\n", cudaGetErrorString(err));
+        }
+
+        err = cudaEventCreate(&end);
+        if (err != cudaSuccess) {
+            printf("Failed to create end event: %s\n", cudaGetErrorString(err));
+            cudaEventDestroy(start);
+        }
+
+        err = cudaEventRecord(start, 0);
+        if (err != cudaSuccess) {
+            printf("Failed to record start event: %s\n", cudaGetErrorString(err));
+            cudaEventDestroy(start);
+            cudaEventDestroy(end);
+        }
+
+        // start gpu threads
+        miner<<<threads,blocks>>> (prefix_g, share_chunk_g, (size_t)share_difficulty, out_g, stop, share_id, blocks * threads);
         checkCudaErrors(cudaDeviceSynchronize());
+
+        err = cudaEventRecord(end, 0);
+        if (err != cudaSuccess) {
+            printf("Failed to record end event: %s\n", cudaGetErrorString(err));
+            cudaEventDestroy(start);
+            cudaEventDestroy(end);
+        }
+
+        err = cudaEventSynchronize(end);
+        if (err != cudaSuccess) {
+            printf("Failed to synchronize end event: %s\n", cudaGetErrorString(err));
+            cudaEventDestroy(start);
+            cudaEventDestroy(end);
+        }
+
+        err = cudaEventElapsedTime(&elapsed_ms, start, end);
+        if (err != cudaSuccess) {
+            printf("Failed to get elapsed time: %s\n", cudaGetErrorString(err));
+            cudaEventDestroy(start);
+            cudaEventDestroy(end);
+        }
+
+        *hashrate = 4294967296.0 / (elapsed_ms / 1000.0) / 1000000.0;
 
         if (*share_id > 0) {
             for (int i = 0; i < MIN(*share_id, MAX_SHARES); ++i) {
@@ -124,5 +170,8 @@ extern "C" {
         cudaFree(share_id);
         cudaFree(share_chunk_g);
         cudaFree(prefix_g);
+
+        cudaEventDestroy(start);
+        cudaEventDestroy(end);
     }
 }

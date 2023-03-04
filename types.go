@@ -31,8 +31,3 @@ type Block struct {
 type Share struct {
 	Ok bool `json:"ok"`
 }
-
-type Hashrates struct {
-	Ok     bool           `json:"ok"`
-	Result map[string]int `json:"result"`
-}

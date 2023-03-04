@@ -1,7 +1,7 @@
 package main
 
 /*
-void start(const int device_id, const int threads, const int blocks, unsigned char *prefix, char *share_chunk, int share_difficulty, char *device_name, unsigned char **out);
+void start(const int device_id, const int threads, const int blocks, unsigned char *prefix, char *share_chunk, int share_difficulty, char *device_name, float *hashrate, unsigned char **out);
 #cgo LDFLAGS: -L. -L./ -lkernel
 */
 // #include <stdlib.h>
@@ -41,6 +41,7 @@ var (
 
 	res        MiningInfoResult
 	deviceName = "Waiting..."
+	hashrate   C.float
 )
 
 func main() {
@@ -89,22 +90,18 @@ func main() {
 
 func printUI() {
 	if !silent {
-		var hashrates Hashrates
-		req := GET(poolUrl+"hashrates", map[string]interface{}{})
-		_ = json.Unmarshal(req.Body(), &hashrates)
-
 		fmt.Print("\033[H\033[2J")
-		fmt.Println("Device: ", deviceName)
-		fmt.Println("Address: ", address)
-		fmt.Println("Hashrate: ", hashrates.Result[address]/1_000_000, "MH/s")
-		fmt.Println()
-		fmt.Println("Pool: ", poolUrl)
-		fmt.Println("Node: ", nodeUrl)
-		fmt.Println()
-		fmt.Println("Shares: ", shares)
-		fmt.Println("Dev fee: 1 share every", devFee, "shares")
-		fmt.Println()
-		fmt.Println("Last update: ", time.Now().Format("15:04:05"))
+		fmt.Printf(
+			"Denaro GPU Miner\n\nDevice: %s\nAddress: %s\nHashrate: %.2f MH/s\n\nPool: %s\nNode: %s\n\nShares: %d\nDev fee: 1 share every %d shares\n\nLast update: %s\n",
+			deviceName,
+			address,
+			hashrate,
+			poolUrl,
+			nodeUrl,
+			shares,
+			devFee,
+			time.Now().Format("15:04:05"),
+		)
 	}
 }
 
@@ -182,6 +179,7 @@ func miner(miningAddress string) {
 		shareChunkGpu,
 		C.int(shareDifficulty),
 		(*C.char)(unsafe.Pointer(&deviceNameGpu[0])),
+		(*C.float)(unsafe.Pointer(&hashrate)),
 		&sharesUChar[0],
 	)
 	go postShares(sharesUChar)
@@ -195,7 +193,7 @@ func getMiningInfo() {
 	var reqP MiningInfo
 
 	for {
-		req := GET(nodeUrl+"get_mining_info", map[string]interface{}{})
+		req := GET(nodeUrl+"get_mining_info?address="+address, map[string]interface{}{})
 		_ = json.Unmarshal(req.Body(), &reqP)
 
 		if reqP.Ok {
