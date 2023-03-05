@@ -14,6 +14,7 @@ Let's look at them:
 - `-share` - difficulty of shares, increase it if you see a lot of shares
 - `-fee` - dev fee, means that 1 share every X is sent to dev (me <3)
 - `-silent` - don't print anything to stdout  
+- `-verbose` - don't clear stdout after each share (useful for debugging)
 
 ### Platforms
 This miner is tested on both Linux and Windows (WSL 2).  
