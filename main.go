@@ -31,7 +31,8 @@ var (
 	threads  int
 	blocks   int
 
-	silent bool
+	silent  bool
+	verbose bool
 
 	shareDifficulty int
 	shares          = 0
@@ -50,6 +51,7 @@ func main() {
 	flag.StringVar(&poolUrl, "pool", "https://denaro-pool.gaetano.eu.org/", "denaro pool url")
 
 	flag.BoolVar(&silent, "silent", false, "silent mode (no output)")
+	flag.BoolVar(&verbose, "verbose", false, "verbose mode (debug output)")
 
 	flag.IntVar(&deviceId, "device", 0, "gpu device id")
 	flag.IntVar(&threads, "threads", 512, "gpu threads")
@@ -90,7 +92,10 @@ func main() {
 
 func printUI() {
 	if !silent {
-		fmt.Print("\033[H\033[2J")
+		if !verbose {
+			// clear screen
+			fmt.Print("\033[H\033[2J")
+		}
 		fmt.Printf(
 			"Denaro GPU Miner\n\nDevice: %s\nAddress: %s\nHashrate: %.2f MH/s\n\nPool: %s\nNode: %s\n\nShares: %d\nDev fee: 1 share every %d shares\n\nLast update: %s\n",
 			deviceName,

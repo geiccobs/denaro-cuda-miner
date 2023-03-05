@@ -23,7 +23,7 @@ __device__ bool compare(const char* str_a, const char* str_b, unsigned len) {
     return true;
 }
 
-__global__ void miner(unsigned char *hash_prefix, char *share_chunk, size_t share_difficulty, unsigned char **out, int *stop, int *share_id, int step) {
+__global__ void miner(unsigned char *hash_prefix, char *share_chunk, size_t share_difficulty, unsigned char **out, int *stop, int *share_id) {
     uint32_t index = blockIdx.x * blockDim.x + threadIdx.x;
 
     unsigned char _hex[TOTAL_SIZE];
@@ -36,10 +36,10 @@ __global__ void miner(unsigned char *hash_prefix, char *share_chunk, size_t shar
     sha256_update(&prefix_ctx, _hex, TOTAL_SIZE-4);
 
     while (*stop != 1) {
-        _hex[TOTAL_SIZE-4] = (index >> 24) & 0xFF;
-        _hex[TOTAL_SIZE-3] = (index >> 16) & 0xFF;
-        _hex[TOTAL_SIZE-2] = (index >> 8) & 0xFF;
-        _hex[TOTAL_SIZE-1] = index & 0xFF;
+        _hex[TOTAL_SIZE-4] = index >> 24;
+        _hex[TOTAL_SIZE-3] = index >> 16;
+        _hex[TOTAL_SIZE-2] = index >> 8;
+        _hex[TOTAL_SIZE-1] = index;
 
         SHA256_CTX ctx;
         memcpy(&ctx, &prefix_ctx, sizeof(SHA256_CTX));
@@ -54,10 +54,11 @@ __global__ void miner(unsigned char *hash_prefix, char *share_chunk, size_t shar
         if (compare(hash_hex, share_chunk, share_difficulty)) {
             memcpy(out[*share_id], _hex, sizeof(unsigned char) * TOTAL_SIZE);
             *share_id += 1;
-        } else if (index == 0xFFFFFFFF || *share_id == MAX_SHARES) {
+        }
+        if (index == 0xFFFFFFFF || *share_id == MAX_SHARES) {
             *stop = 1;
         }
-        index += step;
+        index += blockDim.x * gridDim.x;
     }
 }
 
@@ -128,8 +129,7 @@ extern "C" {
             cudaEventDestroy(end);
         }
 
-        // start gpu threads
-        miner<<<threads,blocks>>> (prefix_g, share_chunk_g, (size_t)share_difficulty, out_g, stop, share_id, blocks * threads);
+        miner<<<threads,blocks>>> (prefix_g, share_chunk_g, share_difficulty, out_g, stop, share_id);
         checkCudaErrors(cudaDeviceSynchronize());
 
         err = cudaEventRecord(end, 0);
