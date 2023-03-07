@@ -4,66 +4,74 @@
 
 #define TOTAL_SIZE 108
 #define MAX_SHARES 16
+#define UNROLL_FACTOR 4
 
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
-__device__ void sha256_to_hex(unsigned char* data, char pout[64]) {
-    const char* hex = "0123456789abcdef";
-    for (int i = 0; i < 32; i++) {
-        pout[i * 2] = hex[data[i] >> 4];
-        pout[i * 2 + 1] = hex[data[i] & 0x0f];
+__device__ void sha256_to_hex(unsigned char *hash, char *hex) {
+    static const char *digits = "0123456789abcdef";
+    for (int i = 0; i < 16; i++) {
+        char lo_nibble = digits[hash[i] & 0x0F];
+        char hi_nibble = digits[(hash[i] & 0xF0) >> 4];
+        *hex++ = hi_nibble;
+        *hex++ = lo_nibble;
     }
+    *hex = '\0';
 }
 
-__device__ bool compare(const char* str_a, const char* str_b, unsigned len) {
-    for (int i = 0; i < len; ++i) {
-        if (str_a[i] != str_b[i])
+__device__ bool compare(const char* str_a, const char* str_b, size_t len) {
+    for (size_t i = 0; i < len; ++i) {
+        if (str_a[i] != str_b[i]) {
             return false;
+        }
     }
     return true;
 }
 
-__global__ void miner(unsigned char *hash_prefix, char *share_chunk, size_t share_difficulty, unsigned char **out, int *stop, int *share_id) {
-    uint32_t index = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void miner(uint32_t *prefix, char *share_chunk, size_t share_difficulty, unsigned char **out, int *stop, int *share_id) {
+    uint32_t tid = threadIdx.x;
+    uint32_t index = blockIdx.x * blockDim.x + tid;
 
-    unsigned char _hex[TOTAL_SIZE];
-    for (int i = 0; i < TOTAL_SIZE-4; ++i) {
-        _hex[i] = hash_prefix[i];
+    __shared__ SHA256_CTX prefix_ctx;
+    __shared__ uint32_t prefix_copy[TOTAL_SIZE/4 - 1];
+    if (tid == 0) {
+        memcpy(prefix_copy, prefix, sizeof(uint32_t) * (TOTAL_SIZE-4)/4);
+        sha256_init(&prefix_ctx);
+        sha256_update(&prefix_ctx, (unsigned char*)prefix_copy, (TOTAL_SIZE-4));
     }
+    __syncthreads();
 
-    SHA256_CTX prefix_ctx;
-    sha256_init(&prefix_ctx);
-    sha256_update(&prefix_ctx, _hex, TOTAL_SIZE-4);
+    uint32_t _hex[TOTAL_SIZE/4];
+    memcpy(_hex, prefix_copy, sizeof(uint32_t) * (TOTAL_SIZE-4)/4);
+
+    SHA256_CTX ctx;
+    unsigned char hash[32];
+    char hash_hex[64];
 
     while (*stop != 1) {
-        _hex[TOTAL_SIZE-4] = index >> 24;
-        _hex[TOTAL_SIZE-3] = index >> 16;
-        _hex[TOTAL_SIZE-2] = index >> 8;
-        _hex[TOTAL_SIZE-1] = index;
+        for (int i = 0; i < UNROLL_FACTOR; ++i) {
+            _hex[TOTAL_SIZE/4-1] = index + i * blockDim.x * gridDim.x;
 
-        SHA256_CTX ctx;
-        memcpy(&ctx, &prefix_ctx, sizeof(SHA256_CTX));
-        sha256_update(&ctx, _hex + (TOTAL_SIZE-4), 4);
+            memcpy(&ctx, &prefix_ctx, sizeof(SHA256_CTX));
+            sha256_update(&ctx, (unsigned char*)&_hex[TOTAL_SIZE/4-1], 4);
+            sha256_final(&ctx, hash);
+            sha256_to_hex(hash, hash_hex);
 
-        unsigned char hash[32];
-        sha256_final(&ctx, hash);
-
-        char hash_hex[64];
-        sha256_to_hex(hash, hash_hex);
-
-        if (compare(hash_hex, share_chunk, share_difficulty)) {
-            memcpy(out[*share_id], _hex, sizeof(unsigned char) * TOTAL_SIZE);
-            *share_id += 1;
+            if (compare(hash_hex, share_chunk, share_difficulty)) {
+                memcpy(out[*share_id], _hex, sizeof(uint32_t) * TOTAL_SIZE/4);
+                atomicAdd(share_id, 1);
+            }
         }
-        if (index == 0xFFFFFFFF || *share_id == MAX_SHARES) {
+        index += UNROLL_FACTOR * blockDim.x * gridDim.x;
+        if (index >= 0xFFFFFFFF || *share_id == MAX_SHARES) {
             *stop = 1;
         }
-        index += blockDim.x * gridDim.x;
     }
 }
 
+
 extern "C" {
-    void start(const int device_id, const int threads, const int blocks, unsigned char *prefix, char *share_chunk, int share_difficulty, char *device_name, float *hashrate, unsigned char **out) {
+    void start(const int device_id, const int threads, const int blocks, uint32_t *prefix, char *share_chunk, int share_difficulty, char *device_name, float *hashrate, unsigned char **out) {
         auto res = cudaSetDevice(device_id);
         if (res != cudaSuccess) {
             printf("Error setting device: %s\n", cudaGetErrorString(res));
@@ -89,9 +97,9 @@ extern "C" {
         cudaMalloc(&share_chunk_g, sizeof(char) * share_difficulty);
         cudaMemcpy(share_chunk_g, share_chunk, sizeof(char) * share_difficulty, cudaMemcpyHostToDevice);
 
-        unsigned char *prefix_g;
-        cudaMalloc(&prefix_g, sizeof(unsigned char) * (TOTAL_SIZE-4));
-        cudaMemcpy(prefix_g, prefix, sizeof(unsigned char) * (TOTAL_SIZE-4), cudaMemcpyHostToDevice);
+        uint32_t *prefix_g;
+        cudaMalloc(&prefix_g, sizeof(uint32_t) * ((TOTAL_SIZE-4)/4));
+        cudaMemcpy(prefix_g, prefix, sizeof(uint32_t) * ((TOTAL_SIZE-4)/4), cudaMemcpyHostToDevice);
 
         unsigned char **out_g;
         unsigned char *out_t[MAX_SHARES];

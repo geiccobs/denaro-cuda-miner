@@ -1,10 +1,11 @@
 package main
 
+// #include <stdlib.h>
+// #include <stdint.h>
 /*
-void start(const int device_id, const int threads, const int blocks, unsigned char *prefix, char *share_chunk, int share_difficulty, char *device_name, float *hashrate, unsigned char **out);
+void start(const int device_id, const int threads, const int blocks, uint32_t *prefix, char *share_chunk, int share_difficulty, char *device_name, float *hashrate, unsigned char **out);
 #cgo LDFLAGS: -L. -L./ -lkernel
 */
-// #include <stdlib.h>
 import "C"
 
 import (
@@ -180,7 +181,7 @@ func miner(miningAddress string) {
 		C.int(deviceId),
 		C.int(threads),
 		C.int(blocks),
-		(*C.uchar)(unsafe.Pointer(&prefix[0])),
+		(*C.uint)(unsafe.Pointer(&prefix[0])),
 		shareChunkGpu,
 		C.int(shareDifficulty),
 		(*C.char)(unsafe.Pointer(&deviceNameGpu[0])),
