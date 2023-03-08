@@ -98,10 +98,10 @@ func printUI() {
 			fmt.Print("\033[H\033[2J")
 		}
 		fmt.Printf(
-			"Denaro GPU Miner\n\nDevice: %s\nAddress: %s\nHashrate: %.2f MH/s\n\nPool: %s\nNode: %s\n\nShares: %d\nDev fee: 1 share every %d shares\n\nLast update: %s\n",
+			"Denaro GPU Miner\n\nDevice: %s\nAddress: %s\nHashrate: %.2f GH/s\n\nPool: %s\nNode: %s\n\nShares: %d\nDev fee: 1 share every %d shares\n\nLast update: %s\n",
 			deviceName,
 			address,
-			hashrate,
+			float32(hashrate),
 			poolUrl,
 			nodeUrl,
 			shares,

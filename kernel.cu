@@ -48,27 +48,36 @@ __global__ void miner(uint32_t *prefix, char *share_chunk, size_t share_difficul
     unsigned char hash[32];
     char hash_hex[64];
 
+    uint32_t i = 0;
     while (*stop != 1) {
-        for (int i = 0; i < UNROLL_FACTOR; ++i) {
-            _hex[TOTAL_SIZE/4-1] = index + i * blockDim.x * gridDim.x;
+        _hex[TOTAL_SIZE/4-1] = index + i * blockDim.x * gridDim.x;
 
-            memcpy(&ctx, &prefix_ctx, sizeof(SHA256_CTX));
-            sha256_update(&ctx, (unsigned char*)&_hex[TOTAL_SIZE/4-1], 4);
-            sha256_final(&ctx, hash);
-            sha256_to_hex(hash, hash_hex);
+        memcpy(&ctx, &prefix_ctx, sizeof(SHA256_CTX));
+        sha256_update(&ctx, (unsigned char*)&_hex[TOTAL_SIZE/4-1], 4);
+        sha256_final(&ctx, hash);
+        sha256_to_hex(hash, hash_hex);
 
-            if (compare(hash_hex, share_chunk, share_difficulty)) {
-                memcpy(out[*share_id], _hex, sizeof(uint32_t) * TOTAL_SIZE/4);
-                atomicAdd(share_id, 1);
+        if (compare(hash_hex, share_chunk, share_difficulty)) {
+            int id = atomicAdd(share_id, 1);
+            memcpy(out[id], _hex, sizeof(uint32_t) * TOTAL_SIZE/4);
+
+            if (id >= MAX_SHARES-2) {
+                *stop = 1;
             }
         }
-        index += UNROLL_FACTOR * blockDim.x * gridDim.x;
-        if (index >= 0xFFFFFFFF || *share_id == MAX_SHARES) {
+
+        i++;
+
+        if (i == UNROLL_FACTOR) {
+            index += i * blockDim.x * gridDim.x;
+            i = 0;
+        }
+
+        if (index >= 0xFFFFFFFF) {
             *stop = 1;
         }
     }
 }
-
 
 extern "C" {
     void start(const int device_id, const int threads, const int blocks, uint32_t *prefix, char *share_chunk, int share_difficulty, char *device_name, float *hashrate, unsigned char **out) {
@@ -161,7 +170,7 @@ extern "C" {
             cudaEventDestroy(end);
         }
 
-        *hashrate = 4294967296.0 / (elapsed_ms / 1000.0) / 1000000.0;
+        *hashrate = 4294967296.0 / (elapsed_ms / 1000.0) / 1000000000.0;
 
         if (*share_id > 0) {
             for (int i = 0; i < MIN(*share_id, MAX_SHARES); ++i) {
