@@ -17,6 +17,9 @@ import (
 	"fmt"
 	"github.com/btcsuite/btcutil/base58"
 	"log"
+	"math/rand"
+	"strings"
+	"sync"
 	"time"
 	"unsafe"
 )
@@ -24,16 +27,9 @@ import (
 const devAddress = "DnAmhfPcckW4yDCVdaMQtPs6CkSfsQNyDrJ6kZzanJpty"
 
 var (
-	address string
-	nodeUrl string
-	poolUrl string
-
-	deviceId int
-	threads  int
-	blocks   int
-
-	silent  bool
-	verbose bool
+	address, nodeUrl, poolUrl string
+	deviceId, threads, blocks int
+	silent, verbose           bool
 
 	shareDifficulty int
 	shares          = 0
@@ -44,6 +40,8 @@ var (
 	res        MiningInfoResult
 	deviceName = "Waiting..."
 	hashrate   C.float
+
+	addressesCache sync.Map
 )
 
 func main() {
@@ -71,23 +69,16 @@ func main() {
 		}
 	}
 
-	var miningAddressT MiningAddress
-
-	miningAddressReq := GET(
-		poolUrl+"get_mining_address",
-		map[string]interface{}{
-			"address": address,
-		},
-	)
-	if err := json.Unmarshal(miningAddressReq.Body(), &miningAddressT); err != nil {
-		panic(err)
-	}
-
 	getMiningInfo()
+
+	// multi address
+	addresses := strings.Split(address, ",")
 
 	for {
 		go printUI()
-		miner(miningAddressT.Address)
+
+		address = addresses[rand.Intn(len(addresses))]
+		miner(getMiningAddress(address))
 	}
 }
 
@@ -193,6 +184,28 @@ func miner(miningAddress string) {
 	deviceName = C.GoString((*C.char)(unsafe.Pointer(&deviceNameGpu[0])))
 
 	C.free(unsafe.Pointer(shareChunkGpu))
+}
+
+func getMiningAddress(address string) string {
+	var reqP MiningAddress
+
+	// use sync.Map as cache for addresses
+	if cachedAddress, ok := addressesCache.Load(address); ok {
+		return cachedAddress.(string)
+	}
+
+	for {
+		req := GET(poolUrl+"get_mining_address", map[string]interface{}{"address": address})
+		_ = json.Unmarshal(req.Body(), &reqP)
+
+		if reqP.Ok {
+			addressesCache.Store(address, reqP.Address)
+			break
+		} else {
+			time.Sleep(1 * time.Second)
+		}
+	}
+	return reqP.Address
 }
 
 func getMiningInfo() {

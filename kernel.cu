@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <cuda.h>
+#include <time.h>
 #include "sha256.cuh"
 
 #define TOTAL_SIZE 108
