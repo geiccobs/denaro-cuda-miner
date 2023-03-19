@@ -3,7 +3,7 @@ package main
 // #include <stdlib.h>
 // #include <stdint.h>
 /*
-void start(const int device_id, const int threads, const int blocks, uint32_t *prefix, char *share_chunk, int share_difficulty, char *device_name, float *hashrate, unsigned char **out);
+void start(const int device_id, const int threads, const int blocks, uint32_t *prefix, size_t difficulty, char *share_chunk, size_t share_difficulty, char *device_name, float *hashrate, unsigned char **out);
 #cgo LDFLAGS: -L. -L./ -lkernel
 */
 import "C"
@@ -137,7 +137,7 @@ func miner(miningAddress string) {
 	} else {
 		addressBytes = stringToBytes(miningAddress)
 	}
-	a := time.Now().Unix()
+
 	txs := res.PendingTransactionsHashes
 	merkleTree := getTransactionsMerkleTree(txs)
 
@@ -152,12 +152,6 @@ func miner(miningAddress string) {
 	prefix = append(prefix, addressBytes...)
 	dataMerkleTree, _ := hex.DecodeString(merkleTree)
 	prefix = append(prefix, dataMerkleTree...)
-	dataA := make([]byte, 4)
-	binary.LittleEndian.PutUint32(dataA, uint32(a))
-	prefix = append(prefix, dataA...)
-	dataDifficulty := make([]byte, 2)
-	binary.LittleEndian.PutUint16(dataDifficulty, uint16(difficulty*10))
-	prefix = append(prefix, dataDifficulty...)
 
 	var shareChunkGpu = C.CString(shareChunk)
 
@@ -173,8 +167,9 @@ func miner(miningAddress string) {
 		C.int(threads),
 		C.int(blocks),
 		(*C.uint)(unsafe.Pointer(&prefix[0])),
+		C.ulong(difficulty*10),
 		shareChunkGpu,
-		C.int(shareDifficulty),
+		C.ulong(shareDifficulty),
 		(*C.char)(unsafe.Pointer(&deviceNameGpu[0])),
 		(*C.float)(unsafe.Pointer(&hashrate)),
 		&sharesUChar[0],

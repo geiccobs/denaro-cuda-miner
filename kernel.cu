@@ -5,13 +5,18 @@
 
 #define TOTAL_SIZE 108
 #define MAX_SHARES 16
-#define UNROLL_FACTOR 4
 
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
-__device__ void sha256_to_hex(unsigned char *hash, char *hex) {
-    static const char *digits = "0123456789abcdef";
-    for (int i = 0; i < 16; i++) {
+__device__ __constant__ uint32_t prefix_c[TOTAL_SIZE/4];
+__device__ __constant__ char share_chunk_c[32];
+__device__ __constant__ size_t share_difficulty_c;
+
+__device__ __forceinline__ void sha256_to_hex(unsigned char *hash, char *hex) {
+    static const char digits[] = "0123456789abcdef";
+
+    #pragma unroll
+    for (int i = 0; i < 16; ++i) {
         char lo_nibble = digits[hash[i] & 0x0F];
         char hi_nibble = digits[(hash[i] & 0xF0) >> 4];
         *hex++ = hi_nibble;
@@ -20,58 +25,49 @@ __device__ void sha256_to_hex(unsigned char *hash, char *hex) {
     *hex = '\0';
 }
 
-__device__ bool compare(const char* str_a, const char* str_b, size_t len) {
-    for (size_t i = 0; i < len; ++i) {
-        if (str_a[i] != str_b[i]) {
-            return false;
-        }
+__device__ __forceinline__ bool is_valid(const char* str) {
+    int mask = 0;
+
+    #pragma unroll
+    for (int i = 0; i < share_difficulty_c; ++i) {
+        mask |= (str[i] ^ share_chunk_c[i]);
     }
-    return true;
+    return mask == 0;
 }
 
-__global__ void miner(uint32_t *prefix, char *share_chunk, size_t share_difficulty, unsigned char **out, int *stop, int *share_id) {
-    uint32_t tid = threadIdx.x;
-    uint32_t index = blockIdx.x * blockDim.x + tid;
+__global__ void miner(unsigned char **out, int *stop, int *share_id) {
+    const __restrict__ uint32_t tid = threadIdx.x;
 
     __shared__ SHA256_CTX prefix_ctx;
-    __shared__ uint32_t prefix_copy[TOTAL_SIZE/4 - 1];
     if (tid == 0) {
-        memcpy(prefix_copy, prefix, sizeof(uint32_t) * (TOTAL_SIZE-4)/4);
         sha256_init(&prefix_ctx);
-        sha256_update(&prefix_ctx, (unsigned char*)prefix_copy, (TOTAL_SIZE-4));
+        sha256_update(&prefix_ctx, (unsigned char*)prefix_c, sizeof(uint32_t) * (TOTAL_SIZE-4)/4);
     }
     __syncthreads();
 
     uint32_t _hex[TOTAL_SIZE/4];
-    memcpy(_hex, prefix_copy, sizeof(uint32_t) * (TOTAL_SIZE-4)/4);
+    memcpy(_hex, prefix_c, sizeof(uint32_t) * (TOTAL_SIZE-4)/4);
 
     SHA256_CTX ctx;
     unsigned char hash[32];
     char hash_hex[64];
 
-    uint32_t i = 0;
-    while (*stop != 1) {
-        _hex[TOTAL_SIZE/4-1] = index + i * blockDim.x * gridDim.x;
+    for (uint32_t index = blockIdx.x * blockDim.x + tid; *stop != 1; index += blockDim.x * gridDim.x) {
+        _hex[TOTAL_SIZE/4-1] = index;
 
         memcpy(&ctx, &prefix_ctx, sizeof(SHA256_CTX));
         sha256_update(&ctx, (unsigned char*)&_hex[TOTAL_SIZE/4-1], 4);
         sha256_final(&ctx, hash);
         sha256_to_hex(hash, hash_hex);
 
-        if (compare(hash_hex, share_chunk, share_difficulty)) {
+        if (is_valid(hash_hex)) {
             int id = atomicAdd(share_id, 1);
+            //printf("Found share: %s index: %d\n", hash_hex, index);
             memcpy(out[id], _hex, sizeof(uint32_t) * TOTAL_SIZE/4);
 
             if (id >= MAX_SHARES-2) {
                 *stop = 1;
             }
-        }
-
-        i++;
-
-        if (i == UNROLL_FACTOR) {
-            index += i * blockDim.x * gridDim.x;
-            i = 0;
         }
 
         if (index >= 0xFFFFFFFF) {
@@ -81,7 +77,7 @@ __global__ void miner(uint32_t *prefix, char *share_chunk, size_t share_difficul
 }
 
 extern "C" {
-    void start(const int device_id, const int threads, const int blocks, uint32_t *prefix, char *share_chunk, int share_difficulty, char *device_name, float *hashrate, unsigned char **out) {
+    void start(const int device_id, const int threads, const int blocks, uint32_t *prefix, size_t difficulty, char *share_chunk, size_t share_difficulty, char *device_name, float *hashrate, unsigned char **out) {
         auto res = cudaSetDevice(device_id);
         if (res != cudaSuccess) {
             printf("Error setting device: %s\n", cudaGetErrorString(res));
@@ -102,14 +98,6 @@ extern "C" {
         int *share_id;
         cudaMallocManaged(&share_id, sizeof(int));
         cudaMemcpy(share_id, 0, sizeof(int), cudaMemcpyHostToDevice);
-
-        char *share_chunk_g;
-        cudaMalloc(&share_chunk_g, sizeof(char) * share_difficulty);
-        cudaMemcpy(share_chunk_g, share_chunk, sizeof(char) * share_difficulty, cudaMemcpyHostToDevice);
-
-        uint32_t *prefix_g;
-        cudaMalloc(&prefix_g, sizeof(uint32_t) * ((TOTAL_SIZE-4)/4));
-        cudaMemcpy(prefix_g, prefix, sizeof(uint32_t) * ((TOTAL_SIZE-4)/4), cudaMemcpyHostToDevice);
 
         unsigned char **out_g;
         unsigned char *out_t[MAX_SHARES];
@@ -147,8 +135,25 @@ extern "C" {
             cudaEventDestroy(end);
         }
 
-        miner<<<threads,blocks>>> (prefix_g, share_chunk_g, share_difficulty, out_g, stop, share_id);
-        checkCudaErrors(cudaDeviceSynchronize());
+        prefix[TOTAL_SIZE/4-2] = (prefix[TOTAL_SIZE/4-2] & 0xFFFF) | (difficulty << 16);
+
+        cudaMemcpyToSymbol(share_chunk_c, share_chunk, sizeof(char) * 32);
+        cudaMemcpyToSymbol(share_difficulty_c, &share_difficulty, sizeof(size_t));
+
+        uint loops_count = 0;
+        while (*share_id == 0 && loops_count < 5) {
+            time_t now = time(NULL);
+            prefix[TOTAL_SIZE/4-3] = (prefix[TOTAL_SIZE/4-3] & 0xFFFF) | ((now & 0xFFFF) << 16);
+            prefix[TOTAL_SIZE/4-2] = (prefix[TOTAL_SIZE/4-2] & 0xFFFF0000) | ((now & 0xFFFF0000) >> 16);
+
+            cudaMemcpyToSymbol(prefix_c, prefix, sizeof(uint32_t) * ((TOTAL_SIZE-4)/4));
+
+            miner<<<threads,blocks>>> (out_g, stop, share_id);
+            checkCudaErrors(cudaDeviceSynchronize());
+
+            *stop = 0;
+            loops_count++;
+        }
 
         err = cudaEventRecord(end, 0);
         if (err != cudaSuccess) {
@@ -171,7 +176,7 @@ extern "C" {
             cudaEventDestroy(end);
         }
 
-        *hashrate = 4294967296.0 / (elapsed_ms / 1000.0) / 1000000000.0;
+        *hashrate = (4294967296.0 / (elapsed_ms / 1000.0) / 1000000000.0) * loops_count;
 
         if (*share_id > 0) {
             for (int i = 0; i < MIN(*share_id, MAX_SHARES); ++i) {
@@ -186,8 +191,6 @@ extern "C" {
 
         cudaFree(stop);
         cudaFree(share_id);
-        cudaFree(share_chunk_g);
-        cudaFree(prefix_g);
 
         cudaEventDestroy(start);
         cudaEventDestroy(end);
