@@ -207,7 +207,7 @@ func getMiningInfo() {
 	var reqP MiningInfo
 
 	for {
-		req := GET(nodeUrl+"get_mining_info?address="+address, map[string]interface{}{})
+		req := GET(nodeUrl+"get_mining_info", map[string]interface{}{})
 		_ = json.Unmarshal(req.Body(), &reqP)
 
 		if reqP.Ok {
