@@ -9,7 +9,7 @@
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
 __device__ __constant__ uint32_t prefix_c[TOTAL_SIZE/4];
-__device__ __constant__ char share_chunk_c[32];
+__device__ __constant__ char share_chunk_c[64];
 __device__ __constant__ size_t share_difficulty_c;
 
 __device__ __forceinline__ void sha256_to_hex(unsigned char *hash, char *hex) {
@@ -62,7 +62,6 @@ __global__ void miner(unsigned char **out, int *stop, int *share_id) {
 
         if (is_valid(hash_hex)) {
             int id = atomicAdd(share_id, 1);
-            //printf("Found share: %s index: %d\n", hash_hex, index);
             memcpy(out[id], _hex, sizeof(uint32_t) * TOTAL_SIZE/4);
 
             if (id >= MAX_SHARES-2) {
@@ -137,7 +136,7 @@ extern "C" {
 
         prefix[TOTAL_SIZE/4-2] = (prefix[TOTAL_SIZE/4-2] & 0xFFFF) | (difficulty << 16);
 
-        cudaMemcpyToSymbol(share_chunk_c, share_chunk, sizeof(char) * 32);
+        cudaMemcpyToSymbol(share_chunk_c, share_chunk, sizeof(char) * 64);
         cudaMemcpyToSymbol(share_difficulty_c, &share_difficulty, sizeof(size_t));
 
         uint loops_count = 0;
