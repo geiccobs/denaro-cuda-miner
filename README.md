@@ -37,6 +37,7 @@ nvcc --ptxas-options=-v --compiler-options '-fPIC' -o libkernel.so --shared kern
 LD_LIBRARY_PATH=. go build
 ```
 
+
 ## Discussed topics
 ### Dev fee
 I've done this work basically for free, without having any idea about CUDA, nor an NVIDIA GPU.  
@@ -49,3 +50,14 @@ At the moment it's a value took from the pool so it isn't really your GPU hashra
 ### Multiple GPUs
 I'll be working on it.  
 Currently, you can select which GPU to use by setting `-device` parameter, but you can't use multiple GPUs at the same time.
+
+### Restarting after crash
+To restart your miner after it crashes (beacuse yes, it can always happen) you can create a `run.sh` file with the following content:
+```bash
+while true
+do
+LD_LIBRARY_PATH=. ./cuda -address YOUR_ADDRESS
+sleep 1
+done
+```
+To start the miner you can now invoke `./run.sh` in your terminal!
