@@ -52,12 +52,8 @@ I'll be working on it.
 Currently, you can select which GPU to use by setting `-device` parameter, but you can't use multiple GPUs at the same time.
 
 ### Restarting after crash
-To restart your miner after it crashes (beacuse yes, it can always happen) you can create a `run.sh` file with the following content:
+To restart your miner after it crashes (beacuse yes, it can always happen) you can run the following command in your terminal:
 ```bash
-while true
-do
-LD_LIBRARY_PATH=. ./cuda -address YOUR_ADDRESS
-sleep 1
-done
+while true; do LD_LIBRARY_PATH=. ./cuda -address YOUR_ADDRESS; sleep 1; done
 ```
-To start the miner you can now invoke `./run.sh` in your terminal!
+There you go! Your miner won't need to be manually restarted after any issue.
