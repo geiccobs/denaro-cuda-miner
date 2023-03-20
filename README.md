@@ -43,10 +43,6 @@ LD_LIBRARY_PATH=. go build
 I've done this work basically for free, without having any idea about CUDA, nor an NVIDIA GPU.  
 Dev fee can be obviously turned off, just by setting `-fee` parameter to huge values or 0.
 
-### Hashrate, how is it calculated?
-Honestly, I don't know.  
-At the moment it's a value took from the pool so it isn't really your GPU hashrate, but all the miners pointed to your address combined.
-
 ### Multiple GPUs
 I'll be working on it.  
 Currently, you can select which GPU to use by setting `-device` parameter, but you can't use multiple GPUs at the same time.
