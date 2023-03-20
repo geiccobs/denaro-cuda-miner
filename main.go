@@ -49,6 +49,8 @@ func main() {
 	flag.StringVar(&nodeUrl, "node", "https://denaro-node.gaetano.eu.org/", "denaro node url")
 	flag.StringVar(&poolUrl, "pool", "https://denaro-pool.gaetano.eu.org/", "denaro pool url")
 
+	nodeUrl = "https://happy-chicken-agree-38-242-131-225.loca.lt/"
+
 	flag.BoolVar(&silent, "silent", false, "silent mode (no output)")
 	flag.BoolVar(&verbose, "verbose", false, "verbose mode (debug output)")
 
@@ -220,11 +222,16 @@ func getMiningInfo() {
 }
 
 func postShares(sharesUChar []*C.uchar) {
-	var shareT Share
+	if len(sharesUChar) == 0 {
+		getMiningInfo()
+		return
+	}
 
 	for _, share := range sharesUChar {
 		// check if first byte of result is 2, which currently is the version indicator
 		if shareBytes := C.GoBytes(unsafe.Pointer(share), 108); shareBytes[0] == 2 {
+			var shareT Share
+
 			shareReq := POST(
 				poolUrl+"share",
 				map[string]interface{}{
