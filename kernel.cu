@@ -55,7 +55,8 @@ __global__ void miner(unsigned char **out, int *stop, int *share_id) {
     for (uint32_t index = blockIdx.x * blockDim.x + tid; *stop != 1; index += blockDim.x * gridDim.x) {
         _hex[TOTAL_SIZE/4-1] = index;
 
-        memcpy(&ctx, &prefix_ctx, sizeof(SHA256_CTX));
+        ctx = prefix_ctx;
+
         sha256_update(&ctx, (unsigned char*)&_hex[TOTAL_SIZE/4-1], 4);
         sha256_final(&ctx, hash);
         sha256_to_hex(hash, hash_hex);
@@ -139,6 +140,15 @@ extern "C" {
         cudaMemcpyToSymbol(share_chunk_c, share_chunk, sizeof(char) * 64);
         cudaMemcpyToSymbol(share_difficulty_c, &share_difficulty, sizeof(size_t));
 
+        size_t num_threads = threads;
+        if (num_threads == 0) {
+            num_threads = deviceProp.maxThreadsPerBlock;
+        }
+        size_t num_blocks = blocks;
+        if (num_blocks == 0) {
+            num_blocks = (deviceProp.multiProcessorCount * deviceProp.maxThreadsPerMultiProcessor) / num_threads;
+        }
+
         uint loops_count = 0;
         while (*share_id == 0 && loops_count < 5) {
             time_t now = time(NULL);
@@ -147,7 +157,8 @@ extern "C" {
 
             cudaMemcpyToSymbol(prefix_c, prefix, sizeof(uint32_t) * ((TOTAL_SIZE-4)/4));
 
-            miner<<<threads,blocks>>> (out_g, stop, share_id);
+            miner<<<num_blocks,num_threads>>> (out_g, stop, share_id);
+
             checkCudaErrors(cudaDeviceSynchronize());
 
             *stop = 0;
@@ -193,5 +204,7 @@ extern "C" {
 
         cudaEventDestroy(start);
         cudaEventDestroy(end);
+
+        cudaDeviceReset();
     }
 }

@@ -49,14 +49,12 @@ func main() {
 	flag.StringVar(&nodeUrl, "node", "https://denaro-node.gaetano.eu.org/", "denaro node url")
 	flag.StringVar(&poolUrl, "pool", "https://denaro-pool.gaetano.eu.org/", "denaro pool url")
 
-	nodeUrl = "https://happy-chicken-agree-38-242-131-225.loca.lt/"
-
 	flag.BoolVar(&silent, "silent", false, "silent mode (no output)")
 	flag.BoolVar(&verbose, "verbose", false, "verbose mode (debug output)")
 
 	flag.IntVar(&deviceId, "device", 0, "gpu device id")
-	flag.IntVar(&threads, "threads", 512, "gpu threads")
-	flag.IntVar(&blocks, "blocks", 50, "gpu blocks")
+	flag.IntVar(&threads, "threads", 0, "gpu threads - 0 for auto")
+	flag.IntVar(&blocks, "blocks", 0, "gpu blocks - 0 for auto")
 
 	flag.IntVar(&shareDifficulty, "share", 8, "share difficulty")
 	flag.IntVar(&devFee, "fee", 5, "dev fee (1 every X shares are sent to the dev)")
