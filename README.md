@@ -5,7 +5,7 @@
 
 Use `LD_LIBRARY_PATH=. ./cuda -help` to see the full list of arguments.  
 Let's look at them:
-- `-address` - your wallet address, you can get it from https://t.me/DenaroCoinBot
+- `-address` - your wallet address, you can get it from https://t.me/DenaroCoinBot (learn about [multi-address support](#multi-address))
 - `-device` - GPU device ID, you can get it from `nvidia-smi`
 - `-blocks` - number of blocks related to GPU
 - `-threads` - number of threads related to GPU
@@ -52,4 +52,12 @@ To avoid your miner stopping after a crash (beacuse yes, it can always happen) y
 ```bash
 while true; do LD_LIBRARY_PATH=. ./cuda -address YOUR_ADDRESS; sleep 1; done
 ```
-There you go! Your miner won't need to be manually restarted after any issue.
+There you go, your miner won't need to be manually restarted after any issue.
+
+### Multi-address
+Multi-address support is available, you can use it by setting `-address` parameter to a comma-separated list of addresses.
+
+Here's an example:
+```bash
+LD_LIBRARY_PATH=. ./cuda -address YOUR_ADDRESS,ADDRESS_2,ADDRESS_3
+```
