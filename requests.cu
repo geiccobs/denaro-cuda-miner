@@ -87,12 +87,11 @@ json_object *curl_post(const char *url, const char *data) {
     return response;
 }
 
-void share(const char *poolUrl, const char *hash, const char pending_transactions_hashes[512][64 + 1], size_t pending_transactions_count, uint id) {
+Share share(const char *poolUrl, const char *hash, const char pending_transactions_hashes[512][64 + 1], size_t pending_transactions_count, uint id) {
     char url[2048];
     strcpy(url, poolUrl);
     strcat(url, "share");
 
-    // create json object
     json_object *jobj = json_object_new_object();
     json_object_object_add(jobj, "block_content", json_object_new_string(hash));
 
@@ -105,11 +104,16 @@ void share(const char *poolUrl, const char *hash, const char pending_transaction
     json_object_object_add(jobj, "id", json_object_new_int(id));
 
     //printf("request: %s\n", json_object_to_json_string_ext(jobj, JSON_C_TO_STRING_PRETTY));
-
     json_object *response = curl_post(url, json_object_to_json_string_ext(jobj, JSON_C_TO_STRING_PRETTY));
-    // TODO: handle response
     //printf("response: %s\n", json_object_to_json_string_ext(response, JSON_C_TO_STRING_PRETTY));
-    json_object_put(response);
+
+    Share share;
+    share.ok = json_object_get_boolean(json_object_object_get(response, "ok"));
+    if (!share.ok) {
+        strcpy(share.error, json_object_get_string(json_object_object_get(response, "error")));
+    }
+
+    return share;
 }
 
 MiningInfo get_mining_info(char *nodeUrl) {

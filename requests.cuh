@@ -28,7 +28,12 @@ typedef struct {
     } result;
 } MiningInfo;
 
-void share(const char *poolUrl, const char *hash, const char pending_transactions_hashes[512][64 + 1], size_t pending_transactions_count, uint id);
+typedef struct {
+    bool ok;
+    char *error;
+} Share;
+
+Share share(const char *poolUrl, const char *hash, const char pending_transactions_hashes[512][64 + 1], size_t pending_transactions_count, uint id);
 MiningInfo get_mining_info(char *nodeUrl);
 const char *get_mining_address(char *poolUrl, char *address);
 

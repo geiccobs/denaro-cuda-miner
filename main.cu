@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
+#include <threads.h>
 
 #include "crypto/base58.cuh"
 #include "crypto/sha256.cuh"
@@ -23,6 +24,11 @@ struct Settings {
     uint shareDifficulty; // share difficulty
     uint devFee; // dev fee (1 every X shares are sent to the dev)
 } settings;
+
+struct ManagerData {
+    unsigned char **out;
+    MiningInfo miningInfo;
+} managerData;
 
 void setDefaultSettings()
 {
@@ -135,14 +141,14 @@ char *get_random_address() {
     return settings.address[random];
 }
 
-void miner(MiningInfo mining_info, const char *mining_address) {
-    uint difficulty = mining_info.result.difficulty;
+void miner(const char *mining_address) {
+    uint difficulty = managerData.miningInfo.result.difficulty;
     uint idifficulty = (uint) difficulty;
 
     char *chunk = (char *) malloc((64 + 1) * sizeof(char));
-    size_t hash_len = strlen(mining_info.result.last_block.hash);
+    size_t hash_len = strlen(managerData.miningInfo.result.last_block.hash);
     for (int i = hash_len - idifficulty; i < hash_len; ++i) {
-        chunk[i - (hash_len - idifficulty)] = mining_info.result.last_block.hash[i];
+        chunk[i - (hash_len - idifficulty)] = managerData.miningInfo.result.last_block.hash[i];
     }
 
     char *share_chunk = (char *) malloc((64 + 1) * sizeof(char));
@@ -159,7 +165,7 @@ void miner(MiningInfo mining_info, const char *mining_address) {
     // TODO: devfee
     b58tobin(address_bytes, &address_bytes_len, mining_address, strlen(mining_address));
 
-    char *transactions_merkle_tree = get_transactions_merkle_tree(mining_info.result.pending_transactions_hashes, mining_info.result.pending_transactions_count);
+    char *transactions_merkle_tree = get_transactions_merkle_tree(managerData.miningInfo.result.pending_transactions_hashes, managerData.miningInfo.result.pending_transactions_count);
 
     unsigned char prefix[104];
 
@@ -168,7 +174,7 @@ void miner(MiningInfo mining_info, const char *mining_address) {
 
     // previous block hash
     unsigned char *previous_block_hash;
-    size_t previous_block_hash_len = hexs2bin(mining_info.result.last_block.hash, &previous_block_hash);
+    size_t previous_block_hash_len = hexs2bin(managerData.miningInfo.result.last_block.hash, &previous_block_hash);
 
     for (int i = 0; i < previous_block_hash_len; ++i) {
         prefix[i + 1] = previous_block_hash[i];
@@ -195,11 +201,6 @@ void miner(MiningInfo mining_info, const char *mining_address) {
     prefix[102] = difficulty_bytes[0];
     prefix[103] = difficulty_bytes[1];
 
-    unsigned char **out = (unsigned char **) malloc(32 * sizeof(unsigned char *));
-    for (int i = 0; i < 32; ++i) {
-        out[i] = (unsigned char *) malloc(108 * sizeof(unsigned char));
-    }
-
     start(
             settings.deviceId,
             settings.threads,
@@ -207,15 +208,36 @@ void miner(MiningInfo mining_info, const char *mining_address) {
             prefix,
             share_chunk,
             settings.shareDifficulty,
-            settings.poolUrl,
-            mining_info.result.pending_transactions_hashes,
-            mining_info.result.pending_transactions_count,
-            mining_info.result.last_block.id + 1,
+            managerData.out,
             settings.silent
     );
 
-    free(out);
+    free(chunk);
+    free(share_chunk);
+    free(transactions_merkle_tree);
+    free(previous_block_hash);
+    free(transactions_merkle_tree_bytes);
     free(difficulty_bytes);
+}
+
+int manager(void *arg) {
+    Share resp;
+
+    while (true) {
+        for (int i = 0; i < 16; ++i) {
+            if (managerData.out[i][0] == 2) {
+                resp = share(settings.poolUrl, bin2hex(managerData.out[i], TOTAL_SIZE), managerData.miningInfo.result.pending_transactions_hashes, managerData.miningInfo.result.pending_transactions_count, managerData.miningInfo.result.last_block.id+1);
+                if (resp.ok) {
+                    printf("Share accepted\n");
+                } else {
+                    printf("Share not accepted: %s\n", resp.error);
+                }
+                memset(managerData.out[i], 0, 108);
+            }
+        }
+        sleep(1);
+    }
+    return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -223,6 +245,15 @@ int main(int argc, char *argv[]) {
     parseArguments(argc, argv);
 
     srand(time(NULL));
+
+    managerData.out = (unsigned char **) malloc(16 * sizeof(unsigned char *));
+    for (int i = 0; i < 16; ++i) {
+        managerData.out[i] = (unsigned char *) malloc(108 * sizeof(unsigned char));
+        memset(managerData.out[i], 0, 108);
+    }
+
+    thrd_t manager_thread;
+    thrd_create(&manager_thread, manager, NULL);
 
     while (true) {
         const char *mining_address = get_mining_address(settings.poolUrl, get_random_address());
@@ -232,15 +263,18 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        MiningInfo mining_info = get_mining_info(settings.nodeUrl);
-        if (!mining_info.ok) {
+        managerData.miningInfo = get_mining_info(settings.nodeUrl);
+        if (!managerData.miningInfo.ok) {
             fprintf(stderr, "Failed to get mining info\n");
             sleep(1);
             continue;
         }
 
-        miner(mining_info, mining_address);
+        miner(mining_address);
+        printf("completed loop\n");
     }
+
+    free(managerData.out);
 
     return 0;
 }

@@ -83,7 +83,7 @@ __global__ void miner(unsigned char **out, int *stop, int *share_id) {
     }
 }
 
-void start(const int device_id, const int threads, const int blocks, unsigned char prefix[TOTAL_SIZE-4], char *share_chunk, size_t share_difficulty, const char *poolUrl, const char pending_transactions_hashes[512][64 + 1], size_t pending_transactions_count, uint id, bool silent) {
+void start(const int device_id, const int threads, const int blocks, unsigned char prefix[TOTAL_SIZE-4], char *share_chunk, size_t share_difficulty, unsigned char **out, bool silent) {
     auto res = cudaSetDevice(device_id);
     if (res != cudaSuccess) {
         printf("Error setting device: %s\n", cudaGetErrorString(res));
@@ -198,14 +198,10 @@ void start(const int device_id, const int threads, const int blocks, unsigned ch
         }
 
         if (*share_id > 0) {
-            unsigned char *out = (unsigned char *)malloc(sizeof(unsigned char) * TOTAL_SIZE);
-
             for (int i = 0; i < MIN(*share_id, MAX_SHARES); ++i) {
-                cudaMemcpy(out, out_t[i], sizeof(unsigned char) * TOTAL_SIZE, cudaMemcpyDeviceToHost);
-                share(poolUrl, bin2hex(out, TOTAL_SIZE), pending_transactions_hashes, pending_transactions_count, id);
+                cudaMemcpy(out[i], out_t[i], sizeof(unsigned char) * TOTAL_SIZE, cudaMemcpyDeviceToHost);
             }
             *share_id = 0;
-            free(out);
         }
 
         *stop = 0;
