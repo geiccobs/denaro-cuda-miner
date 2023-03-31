@@ -27,6 +27,9 @@ struct Settings {
 
 struct ManagerData {
     unsigned char **out;
+    char *miningAddress;
+    char *shareChunk;
+    unsigned char prefix[104];
     MiningInfo miningInfo;
 } managerData;
 
@@ -141,48 +144,44 @@ char *get_random_address() {
     return settings.address[random];
 }
 
-void miner(const char *mining_address) {
-    uint difficulty = managerData.miningInfo.result.difficulty;
-    uint idifficulty = (uint) difficulty;
+void generate_prefix() {
+    uint difficulty = (uint) managerData.miningInfo.result.difficulty;
 
     char *chunk = (char *) malloc((64 + 1) * sizeof(char));
     size_t hash_len = strlen(managerData.miningInfo.result.last_block.hash);
-    for (int i = hash_len - idifficulty; i < hash_len; ++i) {
-        chunk[i - (hash_len - idifficulty)] = managerData.miningInfo.result.last_block.hash[i];
+    for (int i = hash_len - difficulty; i < hash_len; ++i) {
+        chunk[i - (hash_len - difficulty)] = managerData.miningInfo.result.last_block.hash[i];
     }
 
-    char *share_chunk = (char *) malloc((64 + 1) * sizeof(char));
-    if (settings.shareDifficulty > idifficulty) {
-        settings.shareDifficulty = idifficulty;
+    if (settings.shareDifficulty > difficulty) {
+        settings.shareDifficulty = difficulty;
     }
     for (int i = 0; i < settings.shareDifficulty; ++i) {
-        share_chunk[i] = chunk[i];
+        managerData.shareChunk[i] = chunk[i];
     }
 
     unsigned char address_bytes[32 + 1];
     size_t address_bytes_len = 33;
 
     // TODO: devfee
-    b58tobin(address_bytes, &address_bytes_len, mining_address, strlen(mining_address));
+    b58tobin(address_bytes, &address_bytes_len, managerData.miningAddress, strlen(managerData.miningAddress));
 
     char *transactions_merkle_tree = get_transactions_merkle_tree(managerData.miningInfo.result.pending_transactions_hashes, managerData.miningInfo.result.pending_transactions_count);
 
-    unsigned char prefix[104];
-
     // version, not supporting v1
-    prefix[0] = 2;
+    managerData.prefix[0] = 2;
 
     // previous block hash
     unsigned char *previous_block_hash;
     size_t previous_block_hash_len = hexs2bin(managerData.miningInfo.result.last_block.hash, &previous_block_hash);
 
     for (int i = 0; i < previous_block_hash_len; ++i) {
-        prefix[i + 1] = previous_block_hash[i];
+        managerData.prefix[i + 1] = previous_block_hash[i];
     }
 
     // address bytes
     for (int i = 0; i < address_bytes_len; ++i) {
-        prefix[i + 33] = address_bytes[i];
+        managerData.prefix[i + 33] = address_bytes[i];
     }
 
     // transactions merkle tree
@@ -190,30 +189,18 @@ void miner(const char *mining_address) {
     size_t transactions_merkle_tree_bytes_len = hexs2bin(transactions_merkle_tree, &transactions_merkle_tree_bytes);
 
     for (int i = 0; i < transactions_merkle_tree_bytes_len; ++i) {
-        prefix[i + 33 + 33] = transactions_merkle_tree_bytes[i];
+        managerData.prefix[i + 33 + 33] = transactions_merkle_tree_bytes[i];
     }
 
-    // difficulty bytes (which is 2 bytes, idifficulty * 10) on bytes 99 and 100
+    // difficulty bytes (which is 2 bytes, difficulty * 10) on bytes 99 and 100
     unsigned char *difficulty_bytes = (unsigned char *) malloc(2 * sizeof(unsigned char));
-    uint idifficulty_10 = idifficulty * 10;
-    memcpy(difficulty_bytes, &idifficulty_10, sizeof(unsigned char) * 2);
+    uint difficulty_10 = difficulty * 10;
+    memcpy(difficulty_bytes, &difficulty_10, sizeof(unsigned char) * 2);
 
-    prefix[102] = difficulty_bytes[0];
-    prefix[103] = difficulty_bytes[1];
-
-    start(
-            settings.deviceId,
-            settings.threads,
-            settings.blocks,
-            prefix,
-            share_chunk,
-            settings.shareDifficulty,
-            managerData.out,
-            settings.silent
-    );
+    managerData.prefix[102] = difficulty_bytes[0];
+    managerData.prefix[103] = difficulty_bytes[1];
 
     free(chunk);
-    free(share_chunk);
     free(transactions_merkle_tree);
     free(previous_block_hash);
     free(transactions_merkle_tree_bytes);
@@ -247,6 +234,7 @@ int main(int argc, char *argv[]) {
     srand(time(NULL));
 
     managerData.out = (unsigned char **) malloc(16 * sizeof(unsigned char *));
+    managerData.shareChunk = (char *) malloc((64 + 1) * sizeof(char));
     for (int i = 0; i < 16; ++i) {
         managerData.out[i] = (unsigned char *) malloc(108 * sizeof(unsigned char));
         memset(managerData.out[i], 0, 108);
@@ -255,26 +243,38 @@ int main(int argc, char *argv[]) {
     thrd_t manager_thread;
     thrd_create(&manager_thread, manager, NULL);
 
-    while (true) {
-        const char *mining_address = get_mining_address(settings.poolUrl, get_random_address());
-        if (mining_address == NULL) {
-            fprintf(stderr, "Failed to get mining address\n");
-            sleep(1);
-            continue;
-        }
-
-        managerData.miningInfo = get_mining_info(settings.nodeUrl);
-        if (!managerData.miningInfo.ok) {
-            fprintf(stderr, "Failed to get mining info\n");
-            sleep(1);
-            continue;
-        }
-
-        miner(mining_address);
-        printf("completed loop\n");
+    managerData.miningInfo = get_mining_info(settings.nodeUrl);
+    if (!managerData.miningInfo.ok) {
+        fprintf(stderr, "Failed to get mining info\n");
+        sleep(1);
+        return;
     }
 
+    managerData.miningAddress = get_mining_address(settings.poolUrl, get_random_address());
+    if (managerData.miningAddress == NULL) {
+        fprintf(stderr, "Failed to get mining address\n");
+        sleep(1);
+        return;
+    }
+
+    generate_prefix();
+
+    start(
+            settings.deviceId,
+            settings.threads,
+            settings.blocks,
+            managerData.prefix,
+            managerData.shareChunk,
+            settings.shareDifficulty,
+            managerData.out,
+            settings.silent
+    );
+
+    for (int i = 0; i < 16; ++i) {
+        free(managerData.out[i]);
+    }
     free(managerData.out);
+    free(managerData.shareChunk);
 
     return 0;
 }
