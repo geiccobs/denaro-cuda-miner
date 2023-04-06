@@ -1,7 +1,3 @@
-//
-// Created by User on 24/03/2023.
-//
-
 #ifndef C_CUDA_POOL_REQUESTS_CUH
 #define C_CUDA_POOL_REQUESTS_CUH
 
@@ -21,7 +17,6 @@ typedef struct {
             time_t timestamp;
             char content[2048 + 1];
         } last_block;
-        char pending_transactions[512][2048 + 1];
         char pending_transactions_hashes[512][64 + 1];
         size_t pending_transactions_count;
         char merkle_root[64 + 1];
@@ -30,11 +25,11 @@ typedef struct {
 
 typedef struct {
     bool ok;
-    char *error;
+    char error[128 + 1];
 } Share;
 
 Share share(const char *poolUrl, const char *hash, const char pending_transactions_hashes[512][64 + 1], size_t pending_transactions_count, uint id);
-MiningInfo get_mining_info(char *nodeUrl);
-char *get_mining_address(char *poolUrl, char *address);
+MiningInfo get_mining_info(const char *nodeUrl);
+char *get_mining_address(const char *poolUrl, const char *address);
 
 #endif //C_CUDA_POOL_REQUESTS_CUH

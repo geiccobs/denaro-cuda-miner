@@ -1,7 +1,3 @@
-//
-// Created by User on 24/03/2023.
-//
-
 #ifndef C_CUDA_POOL_HEX_CUH
 #define C_CUDA_POOL_HEX_CUH
 

@@ -3,6 +3,7 @@
 #include <time.h>
 #include <stdbool.h>
 
+#include "kernel.cuh"
 #include "sha256.cuh"
 #include "../requests.cuh"
 #include "../crypto/hex.cuh"
@@ -11,8 +12,8 @@
 #define MAX_SHARES 16
 
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
+#define CLEAR() printf("\033[H\033[J")
 
-__device__ __constant__ unsigned char prefix_c[TOTAL_SIZE-4];
 __device__ __constant__ char share_chunk_c[64];
 __device__ __constant__ size_t share_difficulty_c;
 
@@ -39,30 +40,30 @@ __device__ __forceinline__ bool is_valid(const char* str) {
     return mask == 0;
 }
 
-__global__ void miner(unsigned char **out, int *stop, int *share_id) {
+__global__ void miner(unsigned char **out, bool *stop, unsigned char *prefix, int *share_id) {
     const __restrict__ uint32_t tid = threadIdx.x;
 
     __shared__ SHA256_CTX prefix_ctx;
     if (tid == 0) {
         sha256_init_dev(&prefix_ctx);
-        sha256_update_dev(&prefix_ctx, prefix_c, sizeof(unsigned char) * (TOTAL_SIZE-4));
+        sha256_update_dev(&prefix_ctx, prefix, sizeof(unsigned char) * (TOTAL_SIZE-4));
     }
     __syncthreads();
 
     unsigned char _hex[TOTAL_SIZE];
-    memcpy(_hex, prefix_c, sizeof(unsigned char) * (TOTAL_SIZE-4));
+    memcpy(_hex, prefix, sizeof(unsigned char) * (TOTAL_SIZE-4));
 
     SHA256_CTX ctx;
     unsigned char hash[32];
     char hash_hex[64];
 
-    for (uint32_t index = blockIdx.x * blockDim.x + tid; *stop != 1; index += blockDim.x * gridDim.x) {
+    for (uint32_t index = blockIdx.x * blockDim.x + tid; !(*stop); index += blockDim.x * gridDim.x) {
         _hex[TOTAL_SIZE-1] = index;
         _hex[TOTAL_SIZE-2] = index >> 8;
         _hex[TOTAL_SIZE-3] = index >> 16;
         _hex[TOTAL_SIZE-4] = index >> 24;
 
-        ctx = prefix_ctx;
+        memcpy(&ctx, &prefix_ctx, sizeof(SHA256_CTX));
 
         sha256_update_dev(&ctx, _hex + (TOTAL_SIZE-4), sizeof(unsigned char) * 4);
         sha256_final_dev(&ctx, hash);
@@ -73,82 +74,80 @@ __global__ void miner(unsigned char **out, int *stop, int *share_id) {
             memcpy(out[id], _hex, sizeof(unsigned char) * TOTAL_SIZE);
 
             if (id >= MAX_SHARES-2) {
-                *stop = 1;
+                *stop = true;
             }
         }
 
         if (index >= 0xFFFFFFFF) {
-            *stop = 1;
+            *stop = true;
         }
     }
 }
 
-void start(const int device_id, const int threads, const int blocks, unsigned char prefix[TOTAL_SIZE-4], char *share_chunk, size_t share_difficulty, unsigned char **out, bool silent) {
-    auto res = cudaSetDevice(device_id);
+void start(GpuSettings *settings, ManagerData *managerData) {
+    auto res = cudaSetDevice(settings->deviceId);
     if (res != cudaSuccess) {
         printf("Error setting device: %s\n", cudaGetErrorString(res));
         return;
     }
 
     cudaDeviceProp deviceProp;
-    cudaGetDeviceProperties(&deviceProp, device_id);
+    cudaGetDeviceProperties(&deviceProp, settings->deviceId);
 
     checkCudaErrors(cudaMemcpyToSymbol(dev_k, host_k, sizeof(host_k), 0, cudaMemcpyHostToDevice));
 
     // allocate memory on the device
     int zero = 0;
 
-    int *stop;
-    cudaMallocManaged(&stop, sizeof(int));
-    cudaMemcpy(stop, &zero, sizeof(int), cudaMemcpyHostToDevice);
+    bool *stop_g;
+    cudaMallocManaged(&stop_g, sizeof(bool));
+    cudaMemcpy(stop_g, &zero, sizeof(bool), cudaMemcpyHostToDevice);
 
     int *share_id;
     cudaMallocManaged(&share_id, sizeof(int));
     cudaMemcpy(share_id, &zero, sizeof(int), cudaMemcpyHostToDevice);
 
+    unsigned char *prefix_g;
+    cudaMallocManaged(&prefix_g, sizeof(unsigned char) * (TOTAL_SIZE-4));
+
     unsigned char **out_g;
-    unsigned char *out_t[MAX_SHARES];
-
-    cudaMalloc((void **)&out_g, MAX_SHARES*sizeof(unsigned char *));
+    cudaMallocManaged(&out_g, sizeof(unsigned char*) * MAX_SHARES);
 
     for (int i = 0; i < MAX_SHARES; ++i) {
-        cudaMalloc((void **)&out_t[i], sizeof(unsigned char) * TOTAL_SIZE);
-    }
-    cudaMemcpy(out_g, out_t, sizeof(unsigned char *) * MAX_SHARES, cudaMemcpyHostToDevice);
-
-    for (int i = 0; i < MAX_SHARES; ++i) {
-        cudaMemset(out_t[i], 0, sizeof(unsigned char) * TOTAL_SIZE);
+        cudaMallocManaged(&out_g[i], sizeof(unsigned char) * TOTAL_SIZE);
+        cudaMemset(out_g[i], 0, sizeof(unsigned char) * TOTAL_SIZE);
     }
 
-    cudaMemcpyToSymbol(share_chunk_c, share_chunk, sizeof(char) * 64);
-    cudaMemcpyToSymbol(share_difficulty_c, &share_difficulty, sizeof(size_t));
+    cudaMemcpyToSymbol(share_chunk_c, managerData->shareChunk, sizeof(char) * 64);
+    cudaMemcpyToSymbol(share_difficulty_c, &settings->shareDifficulty, sizeof(size_t));
 
-    size_t num_threads = threads;
+    size_t num_threads = settings->threads;
     if (num_threads == 0) {
         num_threads = deviceProp.maxThreadsPerBlock;
     }
-    size_t num_blocks = blocks;
+    size_t num_blocks = settings->blocks;
     if (num_blocks == 0) {
         num_blocks = (deviceProp.multiProcessorCount * deviceProp.maxThreadsPerMultiProcessor) / num_threads;
     }
 
     cudaError_t err;
-    cudaEvent_t start, end;
+    cudaEvent_t start;
+    cudaEvent_t end;
     uint loops_count = 0;
 
-    while (*share_id == 0 && loops_count < 20) {
+    err = cudaEventCreate(&start);
+    if (err != cudaSuccess) {
+        printf("Failed to create start event: %s\n", cudaGetErrorString(err));
+    }
+
+    err = cudaEventCreate(&end);
+    if (err != cudaSuccess) {
+        printf("Failed to create end event: %s\n", cudaGetErrorString(err));
+        cudaEventDestroy(start);
+    }
+
+    while (!(*managerData->stop)) {
         float elapsed_ms = 0.0f;
-
-        err = cudaEventCreate(&start);
-        if (err != cudaSuccess) {
-            printf("Failed to create start event: %s\n", cudaGetErrorString(err));
-        }
-
-        err = cudaEventCreate(&end);
-        if (err != cudaSuccess) {
-            printf("Failed to create end event: %s\n", cudaGetErrorString(err));
-            cudaEventDestroy(start);
-        }
 
         err = cudaEventRecord(start, 0);
         if (err != cudaSuccess) {
@@ -159,14 +158,14 @@ void start(const int device_id, const int threads, const int blocks, unsigned ch
 
         time_t now = time(NULL);
 
-        prefix[98] = now & 0xFF;
-        prefix[99] = (now >> 8) & 0xFF;
-        prefix[100] = (now >> 16) & 0xFF;
-        prefix[101] = (now >> 24) & 0xFF;
+        cudaMemcpy(prefix_g, managerData->prefix, sizeof(unsigned char) * (TOTAL_SIZE-4), cudaMemcpyHostToDevice);
 
-        cudaMemcpyToSymbol(prefix_c, prefix, sizeof(unsigned char) * (TOTAL_SIZE-4));
+        prefix_g[98] = now & 0xFF;
+        prefix_g[99] = (now >> 8) & 0xFF;
+        prefix_g[100] = (now >> 16) & 0xFF;
+        prefix_g[101] = (now >> 24) & 0xFF;
 
-        miner<<<num_blocks,num_threads>>> (out_g, stop, share_id);
+        miner<<<num_blocks,num_threads>>> (out_g, stop_g, prefix_g, share_id);
         checkCudaErrors(cudaDeviceSynchronize());
 
         err = cudaEventRecord(end, 0);
@@ -190,31 +189,69 @@ void start(const int device_id, const int threads, const int blocks, unsigned ch
             cudaEventDestroy(end);
         }
 
-        if (loops_count % 4 == 0 && !silent) {
-            printf("Device: %s\n", deviceProp.name);
-
+        if (!settings->silent) {
             float hashrate = 4294967296.0 / (elapsed_ms / 1000.0) / 1000000000.0;
+
+            CLEAR();
+            printf("Denaro GPU Miner\n\n");
+            printf("Device: %s\n", deviceProp.name);
+            printf("Threads: %d\n", num_threads);
+            printf("Blocks: %d\n\n", num_blocks);
+
+            printf("Node: %s\n", settings->nodeUrl);
+            printf("Pool: %s\n\n", settings->poolUrl);
+
+            printf("Accepted shares: %d\n\n", managerData->shares);
+
             printf("Hashrate: %.2f GH/s\n", hashrate);
         }
 
         if (*share_id > 0) {
+            Share resp;
+
+            unsigned char *out;
+            cudaMallocManaged(&out, sizeof(unsigned char) * TOTAL_SIZE);
+
             for (int i = 0; i < MIN(*share_id, MAX_SHARES); ++i) {
-                cudaMemcpy(out[i], out_t[i], sizeof(unsigned char) * TOTAL_SIZE, cudaMemcpyDeviceToHost);
+                cudaMemcpy(out, out_g[i], sizeof(unsigned char) * TOTAL_SIZE, cudaMemcpyDeviceToHost);
+
+                if (out[0] == 2) {
+                    resp = share(
+                            settings->poolUrl,
+                            bin2hex(out, TOTAL_SIZE),
+                            managerData->miningInfo.result.pending_transactions_hashes,
+                            managerData->miningInfo.result.pending_transactions_count,
+                            managerData->miningInfo.result.last_block.id + 1
+                    );
+                    if (resp.ok) {
+                        if (settings->verbose) {
+                            printf("Share accepted: %s\n", bin2hex(out, TOTAL_SIZE));
+                        }
+                        managerData->shares++;
+                    } else {
+                        if (settings->verbose) {
+                            printf("Share not accepted: %s\n", resp.error);
+                        }
+                        *managerData->stop = true;
+                    }
+                }
+                cudaMemset(out_g[i], 0, sizeof(unsigned char) * TOTAL_SIZE);
             }
             *share_id = 0;
         }
 
-        *stop = 0;
+        *stop_g = false;
         loops_count++;
     }
 
     for (int i = 0; i < MAX_SHARES; ++i) {
-        cudaFree(out_t[i]);
+        cudaFree(out_g[i]);
     }
     cudaFree(out_g);
 
-    cudaFree(stop);
+    cudaFree(stop_g);
     cudaFree(share_id);
+    cudaFree(prefix_g);
 
     cudaEventDestroy(start);
     cudaEventDestroy(end);

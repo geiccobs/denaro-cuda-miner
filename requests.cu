@@ -51,7 +51,6 @@ json_object *curl_get(const char *url) {
         response = json_tokener_parse((const char *) req.buffer);
         curl_easy_cleanup(curl);
     }
-    free(req.buffer);
 
     return response;
 }
@@ -86,13 +85,12 @@ json_object *curl_post(const char *url, const char *data) {
         response = json_tokener_parse((const char *) req.buffer);
         curl_easy_cleanup(curl);
     }
-    free(req.buffer);
 
     return response;
 }
 
 Share share(const char *poolUrl, const char *hash, const char pending_transactions_hashes[512][64 + 1], size_t pending_transactions_count, uint id) {
-    char url[2048];
+    char url[512];
     strcpy(url, poolUrl);
     strcat(url, "share");
 
@@ -124,14 +122,19 @@ Share share(const char *poolUrl, const char *hash, const char pending_transactio
     return share;
 }
 
-MiningInfo get_mining_info(char *nodeUrl) {
+MiningInfo get_mining_info(const char *nodeUrl) {
     MiningInfo response;
 
-    char url[2048];
+    char url[512];
     strcpy(url, nodeUrl);
     strcat(url, "get_mining_info");
 
     json_object *mining_info = curl_get(url);
+    if (mining_info == NULL) {
+        response.ok = false;
+        return response;
+    }
+
     json_object *result = json_object_object_get(mining_info, "result");
     json_object *last_block = json_object_object_get(result, "last_block");
 
@@ -140,13 +143,14 @@ MiningInfo get_mining_info(char *nodeUrl) {
     response.result.difficulty = json_object_get_double(json_object_object_get(result, "difficulty"));
     strcpy(response.result.merkle_root, json_object_get_string(json_object_object_get(result, "merkle_root")));
 
-    for (int i = 0; i < json_object_array_length(json_object_object_get(result, "pending_transactions")); i++) {
-        strcpy(response.result.pending_transactions[i], json_object_get_string(json_object_array_get_idx(json_object_object_get(result, "pending_transactions"), i)));
+    response.result.pending_transactions_count = json_object_array_length(json_object_object_get(result, "pending_transactions_hashes"));
+    if (response.result.pending_transactions_count > 512) {
+        response.result.pending_transactions_count = 512;
     }
-    for (int i = 0; i < json_object_array_length(json_object_object_get(result, "pending_transactions_hashes")); i++) {
+
+    for (int i = 0; i < response.result.pending_transactions_count; ++i) {
         strcpy(response.result.pending_transactions_hashes[i], json_object_get_string(json_object_array_get_idx(json_object_object_get(result, "pending_transactions_hashes"), i)));
     }
-    response.result.pending_transactions_count = json_object_array_length(json_object_object_get(result, "pending_transactions"));
 
     response.result.last_block.id = json_object_get_int(json_object_object_get(last_block, "id"));
     strcpy(response.result.last_block.hash, json_object_get_string(json_object_object_get(last_block, "hash")));
@@ -157,15 +161,11 @@ MiningInfo get_mining_info(char *nodeUrl) {
     response.result.last_block.timestamp = json_object_get_int(json_object_object_get(last_block, "timestamp"));
     strcpy(response.result.last_block.content, json_object_get_string(json_object_object_get(last_block, "content")));
 
-    free(mining_info);
-    free(result);
-    free(last_block);
-
     return response;
 }
 
-char *get_mining_address(char *poolUrl, char *address) {
-    char url[2048];
+char *get_mining_address(const char *poolUrl, const char *address) {
+    char url[512];
     strcpy(url, poolUrl);
     strcat(url, "get_mining_address?address=");
     strcat(url, address);

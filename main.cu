@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
-#include <threads.h>
+#include <pthread.h>
 
 #include "crypto/base58.cuh"
 #include "crypto/sha256.cuh"
@@ -12,41 +12,32 @@
 #include "kernel/kernel.cuh"
 #include "crypto/hex.cuh"
 
-struct Settings {
-    char address[128][45 + 1]; // denaro address (https://t.me/DenaroCoinBot)
-    char nodeUrl[2048 + 1];  // denaro node url
-    char poolUrl[2048 + 1]; // denaro pool url
-    bool silent; // silent mode (no output)
-    bool verbose; // verbose mode (debug output)
-    uint deviceId; // gpu device id
-    uint threads; // gpu threads - 0 for auto
-    uint blocks; // gpu blocks - 0 for auto
-    uint shareDifficulty; // share difficulty
-    uint devFee; // dev fee (1 every X shares are sent to the dev)
-} settings;
+#define MAX_ADDRESSES 64
 
-struct ManagerData {
-    unsigned char **out;
-    char *miningAddress;
-    char *shareChunk;
-    unsigned char prefix[104];
-    MiningInfo miningInfo;
-} managerData;
+GpuSettings gpuSettings = {0};
+LocalSettings localSettings = {0};
 
-void setDefaultSettings()
-{
-    for (int i = 0; i < 128; ++i) {
-        strcpy(settings.address[i], "");
+ManagerData managerData = {0};
+
+void setDefaultSettings() {
+    localSettings.address = (char **) malloc(sizeof(char *) * MAX_ADDRESSES);
+    for (int i = 0; i < MAX_ADDRESSES; ++i) {
+        localSettings.address[i] = (char *) malloc(sizeof(char) * 45);
+        strcpy(localSettings.address[i], "\0");
     }
-    strcpy(settings.nodeUrl, "https://denaro-node.gaetano.eu.org/");
-    strcpy(settings.poolUrl, "https://denaro-pool.gaetano.eu.org/");
-    settings.silent = false;
-    settings.verbose = false;
-    settings.deviceId = 0;
-    settings.threads = 0;
-    settings.blocks = 0;
-    settings.shareDifficulty = 9;
-    settings.devFee = 5;
+    localSettings.devFee = 5;
+    localSettings.loops = 0;
+
+    gpuSettings.nodeUrl = (char *) malloc(sizeof(char) * 128);
+    strcpy(gpuSettings.nodeUrl, "https://denaro-node.gaetano.eu.org/");
+    gpuSettings.poolUrl = (char *) malloc(sizeof(char) * 128);
+    strcpy(gpuSettings.poolUrl, "https://denaro-pool.gaetano.eu.org/");
+    gpuSettings.silent = false;
+    gpuSettings.verbose = false;
+    gpuSettings.deviceId = 0;
+    gpuSettings.threads = 0;
+    gpuSettings.blocks = 0;
+    gpuSettings.shareDifficulty = 9;
 }
 
 void parseArguments(int argc, char *argv[]) {
@@ -69,49 +60,49 @@ void parseArguments(int argc, char *argv[]) {
                 char *token = strtok(argv[i + 1], ",");
                 int j = 0;
                 while (token != NULL) {
-                    strcpy(settings.address[j], token);
+                    strcpy(localSettings.address[j], token);
                     token = strtok(NULL, ",");
                     j++;
                 }
             }
         } else if (strcmp(argv[i], "--node") == 0) {
             if (i + 1 < argc) {
-                strcpy(settings.nodeUrl, argv[i + 1]);
+                strcpy(gpuSettings.nodeUrl, argv[i + 1]);
             }
         } else if (strcmp(argv[i], "--pool") == 0) {
             if (i + 1 < argc) {
-                strcpy(settings.poolUrl, argv[i + 1]);
+                strcpy(gpuSettings.poolUrl, argv[i + 1]);
             }
         } else if (strcmp(argv[i], "--silent") == 0) {
-            settings.silent = true;
+            gpuSettings.silent = true;
         } else if (strcmp(argv[i], "--verbose") == 0) {
-            settings.verbose = true;
+            gpuSettings.verbose = true;
         } else if (strcmp(argv[i], "--device") == 0) {
             if (i + 1 < argc) {
-                settings.deviceId = strtol(argv[i + 1], NULL, 10);
+                gpuSettings.deviceId = strtol(argv[i + 1], NULL, 10);
             }
         } else if (strcmp(argv[i], "--threads") == 0) {
             if (i + 1 < argc) {
-                settings.threads = strtol(argv[i + 1], NULL, 10);
+                gpuSettings.threads = strtol(argv[i + 1], NULL, 10);
             }
         } else if (strcmp(argv[i], "--blocks") == 0) {
             if (i + 1 < argc) {
-                settings.blocks = strtol(argv[i + 1], NULL, 10);
+                gpuSettings.blocks = strtol(argv[i + 1], NULL, 10);
             }
         } else if (strcmp(argv[i], "--share") == 0) {
             if (i + 1 < argc) {
-                settings.shareDifficulty = strtol(argv[i + 1], NULL, 10);
+                gpuSettings.shareDifficulty = strtol(argv[i + 1], NULL, 10);
             }
         } else if (strcmp(argv[i], "--fee") == 0) {
             if (i + 1 < argc) {
-                settings.devFee = strtol(argv[i + 1], NULL, 10);
+                localSettings.devFee = strtol(argv[i + 1], NULL, 10);
             }
         }
     }
 
-    if (strlen(settings.address[0]) == 0) {
+    if (strlen(localSettings.address[0]) == 0) {
         printf("Please specify your denaro address (https://t.me/DenaroCoinBot): ");
-        scanf("%s", settings.address[0]);
+        scanf("%s", localSettings.address[0]);
     }
 }
 
@@ -137,11 +128,11 @@ char *get_transactions_merkle_tree(char transactions[512][64 + 1], size_t transa
 }
 
 char *get_random_address() {
-    int random = rand() % 128;
-    while (strlen(settings.address[random]) == 0) {
-        random = rand() % 128;
+    int random = rand() % MAX_ADDRESSES;
+    while (strlen(localSettings.address[random]) == 0) {
+        random = rand() % MAX_ADDRESSES;
     }
-    return settings.address[random];
+    return localSettings.address[random];
 }
 
 void generate_prefix() {
@@ -153,18 +144,22 @@ void generate_prefix() {
         chunk[i - (hash_len - difficulty)] = managerData.miningInfo.result.last_block.hash[i];
     }
 
-    if (settings.shareDifficulty > difficulty) {
-        settings.shareDifficulty = difficulty;
+    if (gpuSettings.shareDifficulty > difficulty) {
+        gpuSettings.shareDifficulty = difficulty;
     }
-    for (int i = 0; i < settings.shareDifficulty; ++i) {
+    for (int i = 0; i < gpuSettings.shareDifficulty; ++i) {
         managerData.shareChunk[i] = chunk[i];
     }
 
-    unsigned char address_bytes[32 + 1];
     size_t address_bytes_len = 33;
+    unsigned char address_bytes[address_bytes_len];
 
-    // TODO: devfee
-    b58tobin(address_bytes, &address_bytes_len, managerData.miningAddress, strlen(managerData.miningAddress));
+    if (localSettings.devFee != 0 && localSettings.loops != 0 && localSettings.loops % localSettings.devFee == 0) {
+        const char *mining_address_dev = "DnAmhfPcckW4yDCVdaMQtPs6CkSfsQNyDrJ6kZzanJpty\0";
+        b58tobin(address_bytes, &address_bytes_len, mining_address_dev, strlen(mining_address_dev));
+    } else {
+        b58tobin(address_bytes, &address_bytes_len, managerData.miningAddress, strlen(managerData.miningAddress));
+    }
 
     char *transactions_merkle_tree = get_transactions_merkle_tree(managerData.miningInfo.result.pending_transactions_hashes, managerData.miningInfo.result.pending_transactions_count);
 
@@ -207,24 +202,43 @@ void generate_prefix() {
     free(difficulty_bytes);
 }
 
-int manager(void *arg) {
-    Share resp;
+void manager_init() {
+    managerData.stop = (bool *) malloc(sizeof(bool));
+    *managerData.stop = false;
 
+    managerData.shares = 0;
+
+    managerData.shareChunk = (char *) malloc((64 + 1) * sizeof(char));
+}
+
+bool manager_load() {
+    managerData.miningInfo = get_mining_info(gpuSettings.nodeUrl);
+    if (!managerData.miningInfo.ok) {
+        if (!gpuSettings.silent) {
+            fprintf(stderr, "Failed to get mining info\n");
+        }
+        return false;
+    }
+
+    managerData.miningAddress = get_mining_address(gpuSettings.poolUrl, get_random_address());
+    if (managerData.miningAddress == NULL) {
+        if (!gpuSettings.silent) {
+            fprintf(stderr, "Failed to get mining address\n");
+        }
+        return false;
+    }
+    return true;
+}
+
+void *manager(void *arg) {
+    MiningInfo mining_info;
     while (true) {
-        for (int i = 0; i < 16; ++i) {
-            if (managerData.out[i][0] == 2) {
-                resp = share(settings.poolUrl, bin2hex(managerData.out[i], TOTAL_SIZE), managerData.miningInfo.result.pending_transactions_hashes, managerData.miningInfo.result.pending_transactions_count, managerData.miningInfo.result.last_block.id+1);
-                if (resp.ok) {
-                    printf("Share accepted\n");
-                } else {
-                    printf("Share not accepted: %s\n", resp.error);
-                }
-                memset(managerData.out[i], 0, 108);
-            }
+        mining_info = get_mining_info(gpuSettings.nodeUrl);
+        if (mining_info.ok && !(*managerData.stop) && mining_info.result.last_block.id != managerData.miningInfo.result.last_block.id) {
+            *managerData.stop = true;
         }
         sleep(1);
     }
-    return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -233,48 +247,27 @@ int main(int argc, char *argv[]) {
 
     srand(time(NULL));
 
-    managerData.out = (unsigned char **) malloc(16 * sizeof(unsigned char *));
-    managerData.shareChunk = (char *) malloc((64 + 1) * sizeof(char));
-    for (int i = 0; i < 16; ++i) {
-        managerData.out[i] = (unsigned char *) malloc(108 * sizeof(unsigned char));
-        memset(managerData.out[i], 0, 108);
+    manager_init();
+
+    pthread_t manager_thread;
+    pthread_create(&manager_thread, NULL, manager, NULL);
+
+    while (true) {
+        if (!manager_load()) {
+            sleep(1);
+            continue;
+        }
+        generate_prefix();
+
+        start(&gpuSettings, &managerData);
+
+        free(managerData.stop);
+        free(managerData.shareChunk);
+        free(managerData.miningAddress);
+
+        manager_init();
+
+        localSettings.loops++;
     }
-
-    thrd_t manager_thread;
-    thrd_create(&manager_thread, manager, NULL);
-
-    managerData.miningInfo = get_mining_info(settings.nodeUrl);
-    if (!managerData.miningInfo.ok) {
-        fprintf(stderr, "Failed to get mining info\n");
-        sleep(1);
-        return;
-    }
-
-    managerData.miningAddress = get_mining_address(settings.poolUrl, get_random_address());
-    if (managerData.miningAddress == NULL) {
-        fprintf(stderr, "Failed to get mining address\n");
-        sleep(1);
-        return;
-    }
-
-    generate_prefix();
-
-    start(
-            settings.deviceId,
-            settings.threads,
-            settings.blocks,
-            managerData.prefix,
-            managerData.shareChunk,
-            settings.shareDifficulty,
-            managerData.out,
-            settings.silent
-    );
-
-    for (int i = 0; i < 16; ++i) {
-        free(managerData.out[i]);
-    }
-    free(managerData.out);
-    free(managerData.shareChunk);
-
     return 0;
 }
