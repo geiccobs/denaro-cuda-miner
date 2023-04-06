@@ -54,7 +54,9 @@ void parseArguments(int argc, char *argv[]) {
             printf("  --threads\t\tSet the gpu threads, 0 for auto\n");
             printf("  --blocks\t\tSet the gpu blocks, 0 for auto\n");
             printf("  --share\t\tSet the share difficulty\n");
-            printf("  --fee\t\t\tSet the dev fee (1 every X shares are sent to the dev)\n");
+            printf("  --fee\t\t\tSet the dev fee (1 every X blocks are mined by the dev)\n");
+
+            exit(0);
         } else if (strcmp(argv[i], "--address") == 0) {
             if (i + 1 < argc) {
                 char *token = strtok(argv[i + 1], ",");
