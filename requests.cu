@@ -9,20 +9,21 @@
 typedef struct {
     unsigned char *buffer;
     size_t len;
-    size_t buflen;
+    size_t buffer_length;
 } GetRequest;
 
 size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
     GetRequest *req = (GetRequest *) userdata;
     size_t new_len = req->len + size * nmemb;
 
-    if (new_len > req->buflen) {
-        req->buflen = new_len + CHUNK_SIZE;
-        req->buffer = (unsigned char *) realloc(req->buffer, req->buflen);
+    if (new_len > req->buffer_length) {
+        req->buffer_length = new_len + CHUNK_SIZE;
+        req->buffer = (unsigned char *) realloc(req->buffer, req->buffer_length);
     }
 
     memcpy(req->buffer + req->len, ptr, size * nmemb);
     req->len = new_len;
+    req->buffer[req->len] = '\0';
 
     return size * nmemb;
 }
@@ -149,7 +150,8 @@ MiningInfo get_mining_info(const char *nodeUrl) {
     }
 
     for (int i = 0; i < response.result.pending_transactions_count; ++i) {
-        strcpy(response.result.pending_transactions_hashes[i], json_object_get_string(json_object_array_get_idx(json_object_object_get(result, "pending_transactions_hashes"), i)));
+        strcpy(response.result.pending_transactions_hashes[i], json_object_get_string(
+                json_object_array_get_idx(json_object_object_get(result, "pending_transactions_hashes"), i)));
     }
 
     response.result.last_block.id = json_object_get_int(json_object_object_get(last_block, "id"));
@@ -170,10 +172,5 @@ char *get_mining_address(const char *poolUrl, const char *address) {
     strcat(url, "get_mining_address?address=");
     strcat(url, address);
 
-    json_object *mining_address_obj = curl_get(url);
-    char *mining_address = (char *) json_object_get_string(json_object_object_get(mining_address_obj, "address"));
-
-    free(mining_address_obj);
-
-    return mining_address;
+    return (char *) json_object_get_string(json_object_object_get(curl_get(url), "address"));
 }
