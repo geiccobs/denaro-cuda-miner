@@ -33,7 +33,7 @@ You can skip this if you want to use pre-built binary.
 [Install CUDA toolkit](https://developer.nvidia.com/cuda-downloads)
 ```bash
 sudo apt install libjson-c-dev libcurl4-openssl-dev
-nvcc -std=c++11 -O3 -arch=sm_70 --ptxas-options=-v -use_fast_math --compiler-options '-fPIC' -lineinfo main.cu requests.cu kernel/kernel.cu crypto/base58.cu crypto/sha256.cu crypto/hex.cu -lcurl -ljson-c -o cuda
+nvcc -std=c++11 -O3 -arch=all --ptxas-options=-v -use_fast_math --compiler-options '-fPIC' -lineinfo main.cu requests.cu kernel/kernel.cu crypto/base58.cu crypto/sha256.cu crypto/hex.cu -lcurl -ljson-c -o cuda
 ```
 
 ## Discussed topics
