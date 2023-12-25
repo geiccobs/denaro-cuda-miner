@@ -130,6 +130,8 @@ void start(GpuSettings *settings, ManagerData *managerData) {
         num_blocks = (deviceProp.multiProcessorCount * deviceProp.maxThreadsPerMultiProcessor) / num_threads;
     }
 
+    if (settings->verbose) printf("Starting miner with %zu blocks and %zu threads\n", num_blocks, num_threads);
+
     cudaError_t err;
     cudaEvent_t start;
     cudaEvent_t end;
