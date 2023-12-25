@@ -75,11 +75,13 @@ I'll be working on it.
 Currently, you can select which GPU to use by setting `--device` parameter, but you can't use multiple GPUs at the same time.
 
 ### Avoid crashing
-To avoid your miner stopping after a crash (because yes, it can always happen) you can start it using the following command in your terminal:
+Seems to have finally addressed the majority of the crashing issues, if you want to be sure anyway, go ahead.  
+
+~~To avoid your miner stopping after a crash (because yes, it can always happen) you can start it using the following command in your terminal:~~
 ```bash
 while true; do ./cuda --address YOUR_ADDRESS; sleep 1; done
 ```
-There you go, your miner won't need to be manually restarted after any issue.
+~~There you go, your miner won't need to be manually restarted after any issue.~~
 
 ### Multi-address
 Multi-address support is available, you can use it by setting `--address` parameter to a comma-separated list of addresses.

@@ -1,3 +1,5 @@
+#define _CRT_SECURE_NO_WARNINGS
+
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
@@ -5,6 +7,8 @@
 #include <unistd.h>
 #include <time.h>
 #include <pthread.h>
+#include <chrono>
+#include <thread>
 
 #include "crypto/base58.cuh"
 #include "crypto/sha256.cuh"
@@ -18,6 +22,8 @@ GpuSettings gpuSettings = {0};
 LocalSettings localSettings = {0};
 
 ManagerData managerData = {0};
+
+using namespace std;
 
 void setDefaultSettings() {
     localSettings.address = (char **) malloc(sizeof(char *) * MAX_ADDRESSES);
@@ -236,12 +242,12 @@ bool manager_load() {
 
 void *manager(void *arg) {
     MiningInfo mining_info;
-    while (true) {
+    for (;;) {
         mining_info = get_mining_info(gpuSettings.nodeUrl);
         if (mining_info.ok && managerData.stop != NULL && !(*managerData.stop) && mining_info.result.last_block.id != managerData.miningInfo.result.last_block.id) {
             *managerData.stop = true;
         }
-        sleep(1);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
 }
 
@@ -258,7 +264,7 @@ int main(int argc, char *argv[]) {
 
     while (true) {
         if (!manager_load()) {
-            sleep(1);
+            this_thread::sleep_for(chrono::milliseconds(1000));
             continue;
         }
         generate_prefix();
