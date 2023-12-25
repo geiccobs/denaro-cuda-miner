@@ -29,12 +29,40 @@ cd denaro-cuda-miner
 
 ### Compiling by source
 
-You can skip this if you want to use pre-built binary.  
+<i>You can skip this if you want to use pre-built binary.</i>  
+
 [Install CUDA toolkit](https://developer.nvidia.com/cuda-downloads)
 ```bash
-sudo apt install libjson-c-dev libcurl4-openssl-dev cmake
-mkdir build && cd build
-cmake .. && make
+sudo apt install build-essential libjson-c-dev libcurl4-openssl-dev cmake git # install dependencies
+mkdir build && cd build # create a build directory
+cmake .. && make # build the source code
+```
+
+#### Having problems with cmake version?
+In this tutorial we'll be using the .sh installer.  
+[Get the latest cmake installer from their download website](https://cmake.org/download/).
+```bash
+sudo apt purge cmake # clear all the previous versions
+
+chmod 700 cmake.sh # make the script executable
+sudo mkdir /opt/cmake # create a directory for cmake
+./cmake.sh --skip-license --prefix=/opt/cmake # install cmake
+sudo ln -s /opt/cmake/bin/cmake /usr/bin/cmake # create a symlink
+cmake --version # check the version
+
+rm -f cmake.sh # remove the installer
+```
+
+#### Having problems with libjson-c?
+```bash
+git clone https://github.com/json-c/json-c.git # clone the source code
+cd json-c # go to the source code directory
+mkdir build && cd build # create a build directory
+cmake .. && make # build the source code
+sudo make install # install the library
+
+cd ../.. # go back to the root directory
+rm -rf json-c # remove the source code
 ```
 
 ## Discussed topics
