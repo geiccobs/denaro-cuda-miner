@@ -195,8 +195,8 @@ void start(GpuSettings *settings, ManagerData *managerData) {
             CLEAR();
             printf("Denaro GPU Miner\n\n");
             printf("Device: %s\n", deviceProp.name);
-            printf("Threads: %d\n", num_threads);
-            printf("Blocks: %d\n\n", num_blocks);
+            printf("Threads: %zu\n", num_threads);
+            printf("Blocks: %zu\n\n", num_blocks);
 
             printf("Node: %s\n", settings->nodeUrl);
             printf("Pool: %s\n\n", settings->poolUrl);
