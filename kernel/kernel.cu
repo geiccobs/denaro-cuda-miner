@@ -190,7 +190,7 @@ void start(GpuSettings *settings, ManagerData *managerData) {
         }
 
         if (!settings->silent) {
-            float hashrate = 4294967296.0 / (elapsed_ms / 1000.0) / 1000000000.0;
+            float hashrate = (pow(2, 32) - 1) / (elapsed_ms / 1000.0) / pow(10, 9);
 
             CLEAR();
             printf("Denaro GPU Miner\n\n");
