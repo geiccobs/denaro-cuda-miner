@@ -112,7 +112,7 @@ Share share(const char *poolUrl, const char *hash, const char pending_transactio
 
     Share share;
     share.ok = json_object_get_boolean(json_object_object_get(response, "ok"));
-    if (!share.ok) {
+    if (!share.ok && json_object_object_get(response, "error") != NULL) {
         strcpy(share.error, json_object_get_string(json_object_object_get(response, "error")));
     }
 

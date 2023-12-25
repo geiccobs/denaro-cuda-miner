@@ -238,7 +238,7 @@ void *manager(void *arg) {
     MiningInfo mining_info;
     while (true) {
         mining_info = get_mining_info(gpuSettings.nodeUrl);
-        if (mining_info.ok && !(*managerData.stop) && mining_info.result.last_block.id != managerData.miningInfo.result.last_block.id) {
+        if (mining_info.ok && managerData.stop != NULL && !(*managerData.stop) && mining_info.result.last_block.id != managerData.miningInfo.result.last_block.id) {
             *managerData.stop = true;
         }
         sleep(1);
