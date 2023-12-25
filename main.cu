@@ -205,11 +205,13 @@ void generate_prefix() {
 }
 
 void manager_init() {
+    if (managerData.stop != NULL) free(managerData.stop);
     managerData.stop = (bool *) malloc(sizeof(bool));
     *managerData.stop = false;
 
     managerData.shares = 0;
 
+    if (managerData.shareChunk != NULL) free(managerData.shareChunk);
     managerData.shareChunk = (char *) malloc((64 + 1) * sizeof(char));
 }
 
@@ -263,12 +265,7 @@ int main(int argc, char *argv[]) {
 
         start(&gpuSettings, &managerData);
 
-        free(managerData.stop);
-        free(managerData.shareChunk);
-        free(managerData.miningAddress);
-
         manager_init();
-
         localSettings.loops++;
     }
     return 0;
