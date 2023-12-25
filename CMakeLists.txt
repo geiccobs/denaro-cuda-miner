@@ -1,11 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(cuda)
 
-if (CMAKE_CUDA_COMPILER)
-    enable_language(CUDA)
-else()
-    message(FATAL_ERROR "CUDA is not supported")
-endif()
+enable_language(CUDA)
 
 find_package(CURL REQUIRED)
 find_package(json-c REQUIRED)
