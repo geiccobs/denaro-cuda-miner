@@ -35,9 +35,9 @@ void setDefaultSettings() {
     localSettings.loops = 0;
 
     gpuSettings.nodeUrl = (char *) malloc(sizeof(char) * 128);
-    strcpy(gpuSettings.nodeUrl, "https://denaro-node.gaetano.eu.org/");
+    strcpy(gpuSettings.nodeUrl, "https://node.denaro.is/");
     gpuSettings.poolUrl = (char *) malloc(sizeof(char) * 128);
-    strcpy(gpuSettings.poolUrl, "https://denaro-pool.gaetano.eu.org/");
+    strcpy(gpuSettings.poolUrl, "https://pool.denaro.is/");
     gpuSettings.silent = false;
     gpuSettings.verbose = false;
     gpuSettings.deviceId = 0;
