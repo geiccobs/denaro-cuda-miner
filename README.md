@@ -6,15 +6,15 @@
 Use `./cuda --help` to see the full list of arguments.  
 Let's look at them:
 - `--address` - your wallet address, you can get it from https://t.me/DenaroCoinBot (learn about [multi-address support](#multi-address))
-- `--node` - node address to connect to
-- `--pool` - pool address to connect to
-- `--silent` - don't print anything to stdout
-- `--verbose` - don't clear stdout after each share (useful for debugging)
-- `--device` - GPU device ID, you can get it from `nvidia-smi`
-- `--threads` - number of threads related to GPU
-- `--blocks` - number of blocks related to GPU
-- `--share` - difficulty of shares, increase it if you see a lot of shares
-- `--fee` - dev fee, means that 1 every X blocks are mined by the dev (me <3)
+- `--node` - `(def: https://node.denaro.is)` node address to connect to
+- `--pool` - `(def: https://pool.denaro.is)` pool address to connect to
+- `--silent` - `(def: false)` don't print anything to stdout
+- `--verbose` - `(def: false)` don't clear stdout after each share (useful for debugging)
+- `--device` - `(def: 0)` GPU device ID, you can get it from `nvidia-smi`
+- `--threads` - `(def: automatic)` number of threads related to GPU
+- `--blocks` - `(def: automatic)` number of blocks related to GPU
+- `--share` - `(def: 9)` difficulty of shares, increase it if you see a lot of shares
+- `--fee` - `(def: 5)` dev fee, means that 1 every X blocks are mined by the dev (me <3)
 
 ### Platforms
 This miner is tested on both Linux and Windows (WSL 2).  
